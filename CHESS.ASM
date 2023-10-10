@@ -139,7 +139,7 @@ proc drawCell
     mul edx
     add ebx, eax
 
-    call determineColor, @@xPos, @@yPos     ; color in al
+    call determineColor, [@@xPos], [@@yPos]     ; color in al
     mov ecx, CELLDIMENSION
     mov edx, 0
     
