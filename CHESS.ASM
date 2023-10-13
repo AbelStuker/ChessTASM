@@ -157,6 +157,8 @@ proc drawCell
 
     ret
 
+
+
 endp drawCell
 
 proc determineColor
@@ -409,8 +411,8 @@ DATASEG
     fontfilename db "GUI\FONT.BIN", 0
     fontarray db FONTFILE_SIZE dup (?)
 
-    whiteColor db 35h
-    blackColor db 37h
+    whiteColor db 70h;35h
+    blackColor db 73h;37h
     
 
 ; -------------------------------------------------------------------
