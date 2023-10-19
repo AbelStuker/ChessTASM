@@ -11,4 +11,4 @@ Afbeeldingen van schaakstukken kunnen we op basis van grijswaarden omzetting naa
 
 Elke 1 is een ingekleurde pixel en de 0 een transparante pixel. Hierdoor kunnen we a.d.h.v. dezelfde bitmap zowel de witte als de zwarte schaakstukken tekenen. De bitmap dimensies worden ingesteld op 32x32 bits, maar dat moeten we misschien nog aanpassen.
 
-Elke bitmap in het project moet bij het opstarten van het spel worden gebuffered, zodat we maar 1 keer het bestand van elk stuk moeten uitlezen. Vervolgens kunnen we dan om elk stuk te tekenen gewoon de bijhorende databuffer uitlezen.
+Elke bitmap in het project moet bij het opstarten van het spel worden gebuffered, zodat we maar 1 keer het bestand van elk stuk moeten uitlezen. Vervolgens kunnen we dan om elk stuk te tekenen gewoon de bijhorende databuffer uitlezen. 
