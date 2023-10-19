@@ -326,12 +326,16 @@ proc drawPixel
     uses eax, ebx, edx
 
     mov eax, SCREENWIDTH
-    mul [@@y_coord]
-    add eax, [@@x_coord]
+    mul [@@y_coord]                 ; multiply screenwidth with y-coordinate -> first pixel address of line in eax
+    add eax, [@@x_coord]            ; add x-coordinate to first pixel address of line to get complete coordinate address in eax
 
-    lea ebx, [framebuffer + eax*4]
+    lea ebx, [framebuffer + eax]
     mov edx, [@@color]
-    mov [ebx], edx
+
+    ; Initially, we made a mistake by moving edx to [ebx], which resulted in horizontally surrounding pixels turning black.
+    ; The problem was that we moved the entire DWORD color (edx), overwriting 32 bits instead of only 8 (for a single pixel).
+    ; Solution: 
+    mov [ebx], dl
 
     ret
 endp
