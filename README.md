@@ -1,7 +1,8 @@
 # Intel8086ChessASM
 
 ## Schaakstukken
-Ik stel voor dat we deze schaakstukken van op het internet gebruiken om om te zetten in bitmaps: ![schaakstukken](https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Chess_Pieces_Sprite.svg/800px-Chess_Pieces_Sprite.svg.png)We moeten wel nog bekijken of we die wel mogen gebruiken (met copyright enzo). Als dat niet het geval zou zijn moeten we er andere zoeken.
+Ik stel voor dat we deze schaakstukken van op het internet gebruiken om om te zetten in bitmaps: ![schaakstukken](https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Chess_Pieces_Sprite.svg/800px-Chess_Pieces_Sprite.svg.png)
+We moeten wel nog bekijken of we die wel mogen gebruiken (met copyright enzo). Als dat niet het geval zou zijn moeten we er andere zoeken.
 
 
 
