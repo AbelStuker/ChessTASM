@@ -9,6 +9,8 @@ P386
 MODEL FLAT, C
 ASSUME cs:_TEXT,ds:FLAT,es:FLAT,fs:FLAT,gs:FLAT
 
+INCLUDE "CHESS.INC"
+
 SCREENWIDTH EQU 320
 SCREENHEIGHT EQU 200
 CELLS EQU 8
@@ -132,32 +134,29 @@ proc drawCell
     mov edx, CELLDIMENSION
     mul edx
     mov edx, SCREENWIDTH
-    mul edx
-    mov ebx, eax
-    mov eax, [@@xPos]
+    mul edx                 
+    mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
+    mov eax, [@@xPos] 
     mov edx, CELLDIMENSION
-    mul edx
-    add ebx, eax
+    mul edx                 ; eax contains the x-coordinate of the top-left corner of the cell
+    add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
 
     call determineColor, [@@xPos], [@@yPos]     ; color in al
-    mov ecx, CELLDIMENSION
-    mov edx, 0
-    
-    @@horizontalLoop:
-    
-        mov [framebuffer + ebx + ecx - 1], al
-        loop @@horizontalLoop
-    
+
+    xor edx, edx    
     @@verticalLoop:
         mov ecx, CELLDIMENSION
+
+        @@horizontalLoop:
+            mov [framebuffer + ebx + ecx - 1], al
+            loop @@horizontalLoop
+
         inc edx
-        add ebx, SCREENWIDTH
+        add ebx, SCREENWIDTH        ; add screenwidth to ebx (offset) to jump to the leftmost pixel at the next line
         cmp edx, CELLDIMENSION
-        jl @@horizontalLoop
+        jl @@verticalLoop
 
     ret
-
-
 
 endp drawCell
 
@@ -244,6 +243,75 @@ proc closeFile
     ret
 endp closeFile
 
+;;
+
+proc loadPiece
+    arg @@fileName:dword, @@dataBuffer:dword
+    uses eax, ebx
+    
+    call getFileHandle, [@@fileName], 0
+    mov ebx, eax
+    call readFile, ebx, [@@dataBuffer], PIECE_SIZE
+    call closeFile, ebx
+
+    ret
+
+endp loadPiece
+
+proc loadPieces
+    call loadPiece, offset pionFileName, offset pionArray
+    call drawPiece, offset pionArray, 0, 0
+    ret
+endp loadPieces
+
+proc drawPiece
+    arg @@dataBuffer:dword, @@x_coord:dword, @@y_coord:dword
+    uses eax, ebx, ecx, edx, edi
+
+    mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
+    mov ecx, 0
+    @@y_loop:
+        push ecx
+        mov ecx, PIECE_WIDTH
+        @@x_loop:
+            push ecx
+            mov cl, 7
+            @@x_byte_loop:
+                mov al, [byte ptr edi]  ; move value at addr in ebx to eax to perform calculations (check bit at position ecx)
+                shr al, cl             ; bitshift MUST be CL or a constant, nothing else!
+                and al, 1
+                cmp al, 0
+                je @@x_byte_continue
+                call drawPixel, [@@x_coord], [@@y_coord], 0Fh
+
+            @@x_byte_continue:
+                inc [@@x_coord]
+                dec cl
+                cmp cl, 0
+                jge @@x_byte_loop
+
+            @@x_loop_continue:
+                pop ecx
+                sub ecx, 8
+                inc edi
+                cmp ecx, 0
+                jle @@y_continue
+                inc [@@x_coord]
+                jmp @@x_loop
+
+    @@y_continue:
+        inc [@@y_coord]
+        mov [@@x_coord], 0
+        pop ecx
+        inc ecx
+        cmp ecx, PIECE_HEIGHT
+        je @@return
+        jmp @@y_loop
+
+    @@return:
+        ret
+    
+endp drawPiece
 
 ;; --------
 
@@ -351,6 +419,7 @@ PROC main
     call setupVideo
 
     call drawBoard
+    call loadPieces
 
     ;mov eax, [dword ptr string1]
     ;call drawString, 50, 50, eax, 3
@@ -379,28 +448,6 @@ ENDP main
 
 
 
-
-
-
-; ;; Draws one pixel at a certain coordinate in the @@color color
-; proc drawPixel
-;     arg @@x_coord:dword, @@y_coord:dword, @@color:dword
-;     uses eax, ebx, edx
-
-;     mov eax, 800                    ; screen width
-;     mul [@@y_coord]
-;     add eax, [@@x_coord]
-;     lea ebx, [framebuffer + eax*4]
-;     mov edx, [@@color]
-;     mov [ebx], edx
-
-;     ret
-; endp drawPixel
-
-
-
-
-
 ; -------------------------------------------------------------------
 ; DATA
 ; -------------------------------------------------------------------
@@ -414,9 +461,12 @@ DATASEG
     rightcellvisible dw 0
     fontfilename db "GUI\FONT.BIN", 0
     fontarray db FONTFILE_SIZE dup (?)
+    
+    pionFileName db "bitmaps/king.bin", 0
+    pionArray dd PIECE_SIZE dup (?)
 
-    whiteColor db 70h;35h
-    blackColor db 73h;37h
+    whiteColor db 35h
+    blackColor db 37h
     
 
 ; -------------------------------------------------------------------
