@@ -10,7 +10,7 @@ Afbeeldingen van schaakstukken kunnen we op basis van grijswaarden omzetting naa
 1. Omzetten van .png bestand [naar nullen en enen](https://www.dcode.fr/binary-image#f1) (op basis van gekozen b/w threshold).
 2. [Verwijderen van whitespaces/newlines](https://www.browserling.com/tools/remove-all-whitespace) om een doorlopende string te bekomen.
 3. Het omzetten van deze string naar een .bin file via het stringtobin.c script.
-4. Importeren van de bekomen .bin file naar de /images folder.
+4. Importeren van de bekomen .bin file naar de /bitmaps folder.
 
 Elke 1 is een ingekleurde pixel en de 0 een transparante pixel. Hierdoor kunnen we a.d.h.v. dezelfde bitmap zowel de witte als de zwarte schaakstukken tekenen. De bitmap dimensies worden ingesteld op 32x32 bits, maar dat moeten we misschien nog aanpassen.
 
