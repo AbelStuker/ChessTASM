@@ -269,44 +269,90 @@ proc drawPiece
     uses eax, ebx, ecx, edx, edi
 
     mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
-    mov ecx, 0
-    @@y_loop:
-        push ecx
-        mov ecx, PIECE_WIDTH
-        @@x_loop:
-            push ecx
-            mov cl, 7
-            @@x_byte_loop:
-                mov al, [byte ptr edi]  ; move value at addr in ebx to eax to perform calculations (check bit at position ecx)
-                shr al, cl             ; bitshift MUST be CL or a constant, nothing else!
-                and al, 1
-                cmp al, 0
-                je @@x_byte_continue
-                call drawPixel, [@@x_coord], [@@y_coord], 0Fh
+    mov edx, 0
+    @@bitmap_loop:
+        mov eax, [dword ptr edi]
+        mov ecx, 0
+        @@dword_loop:
+            push eax
+            shr eax, cl
+            and eax, 1
+            cmp eax, 0
+            je @@continue
+            push edx
+            xor edx, edx
+            mov eax, ecx        ; move current index of dword_loop to eax
+            mov ebx, 8
+            div ebx             ; divide index by 8 : current byte offset (starting from right) in eax, current bit offset in byte (starting from right) in edx
+            mov ebx, 7
+            sub ebx, edx        ; (7 - byte offset from right) to get current bit starting from left instead of right of byte 
+            push ebx
+            mov ebx, 8
+            mul ebx             ; multiply byte offset with 8 to get bit offset
+            pop ebx
+            add eax, ebx        ; total offset in eax = byte offset + bit offset (in byte)
+            pop edx             ; restore edx (bits counted in buffer)
+                                ; This does not correspond to the actual bit index, since we read each dword backwards due to little endian memory organisation.
+            add eax, edx        ; In order to calculate the total offset, we add the current bit offset in the current dword (eax) to the offset where the current
+            sub eax, ecx        ;   dword begins (i.e. the total amount of bits counted minus the amount of bits counted in the current dword: eax - ecx).
+            mov ebx, PIECE_WIDTH
+            push edx            ; store edx (byte in buffer index) because edx is used to store remainder after division
+            xor edx, edx
+            div ebx             ; y-index in eax, x-index in edx
+            call drawPixel, edx, eax, 0Fh
+            pop edx             ; restore edx
+        @@continue:
+            pop eax
+            inc ecx
+            inc edx
+            cmp edx, PIECE_SIZE
+            je @@return
+            cmp ecx, 32
+            jl @@dword_loop
+        @@next_dword:
+            add edi, 4
+            jmp @@bitmap_loop
 
-            @@x_byte_continue:
-                inc [@@x_coord]
-                dec cl
-                cmp cl, 0
-                jge @@x_byte_loop
 
-            @@x_loop_continue:
-                pop ecx
-                sub ecx, 8
-                inc edi
-                cmp ecx, 0
-                jle @@y_continue
-                inc [@@x_coord]
-                jmp @@x_loop
+   ; mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
+   ; mov ecx, 0
+   ; @@y_loop:
+   ;     push ecx
+   ;     mov ecx, PIECE_WIDTH
+   ;     @@x_loop:
+   ;         push ecx
+   ;         mov cl, 7
+   ;         @@x_byte_loop:
+   ;             mov al, [byte ptr edi]  ; move value at addr in ebx to eax to perform calculations (check bit at position ecx)
+   ;             shr al, cl             ; bitshift MUST be CL or a constant, nothing else!
+   ;             and al, 1
+   ;             cmp al, 0
+   ;             je @@x_byte_continue
+   ;             call drawPixel, [@@x_coord], [@@y_coord], 0Fh
 
-    @@y_continue:
-        inc [@@y_coord]
-        mov [@@x_coord], 0
-        pop ecx
-        inc ecx
-        cmp ecx, PIECE_HEIGHT
-        je @@return
-        jmp @@y_loop
+   ;         @@x_byte_continue:
+   ;             inc [@@x_coord]
+   ;             dec cl
+   ;             cmp cl, 0
+   ;             jge @@x_byte_loop
+
+   ;         @@x_loop_continue:
+   ;             pop ecx
+   ;             sub ecx, 8
+   ;             inc edi
+   ;             cmp ecx, 0
+   ;             jle @@y_continue
+   ;             inc [@@x_coord]
+   ;             jmp @@x_loop
+
+   ; @@y_continue:
+   ;     inc [@@y_coord]
+   ;     mov [@@x_coord], 0
+   ;     pop ecx
+   ;     inc ecx
+   ;     cmp ecx, PIECE_HEIGHT
+   ;     je @@return
+   ;     jmp @@y_loop
 
     @@return:
         ret
