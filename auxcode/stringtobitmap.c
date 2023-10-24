@@ -3,11 +3,14 @@
 
 int main() {
     char input[1000]; // Maximum length of the input string
+    char filename[20];
     printf("Enter a string of binary (0s and 1s): ");
-    scanf(" %s", input);
+    scanf("%s", input);
+    printf("Enter name of file: ");
+    scanf("%s", filename);
 
     FILE *outputFile;
-    outputFile = fopen("output.bin", "wb"); // Open the file for writing in binary mode
+    outputFile = fopen(strcat(filename, ".bin"), "wb"); // Open the file for writing in binary mode
 
     if (outputFile == NULL) {
         printf("Error opening file for writing.\n");
@@ -42,6 +45,9 @@ int main() {
     }
 
     fclose(outputFile);
-    printf("Binary data written to 'output.bin'.\n");
+    printf("Binary data written to '%s'.\n", filename);
     return 0;
 }
+
+
+
