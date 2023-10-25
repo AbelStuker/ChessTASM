@@ -260,12 +260,52 @@ endp loadPiece
 
 proc loadPieces
     call loadPiece, offset pionFileName, offset pionArray
-    call drawPiece, offset pionArray, 0, 0
+    call loadPiece, offset rookFileName, offset rookArray
+    call loadPiece, offset knightFileName, offset knightArray
+    call loadPiece, offset bishopFileName, offset bishopArray
+    call loadPiece, offset queenFileName, offset queenArray
+    call loadPiece, offset kingFileName, offset kingArray
+
+    ; white pieces
+    call drawPiece, offset pionArray, (CELLDIMENSION * 0), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset pionArray, (CELLDIMENSION * 1), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset pionArray, (CELLDIMENSION * 2), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset pionArray, (CELLDIMENSION * 3), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset pionArray, (CELLDIMENSION * 4), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset pionArray, (CELLDIMENSION * 5), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset pionArray, (CELLDIMENSION * 6), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset pionArray, (CELLDIMENSION * 7), (CELLDIMENSION * 1), 0Fh
+    call drawPiece, offset rookArray, 0, 0, 0Fh
+    call drawPiece, offset rookArray, (CELLDIMENSION * 7), 0, 0Fh
+    call drawPiece, offset knightArray, (CELLDIMENSION * 1), 0, 0Fh
+    call drawPiece, offset knightArray, (CELLDIMENSION * 6), 0, 0Fh
+    call drawPiece, offset bishopArray, (CELLDIMENSION * 2), 0, 0Fh
+    call drawPiece, offset bishopArray, (CELLDIMENSION * 5), 0, 0Fh
+    call drawPiece, offset queenArray, (CELLDIMENSION * 3), 0, 0Fh
+    call drawPiece, offset kingArray, (CELLDIMENSION * 4), 0, 0Fh
+
+    ; black pieces
+    call drawPiece, offset pionArray, (CELLDIMENSION * 0), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset pionArray, (CELLDIMENSION * 1), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset pionArray, (CELLDIMENSION * 2), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset pionArray, (CELLDIMENSION * 3), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset pionArray, (CELLDIMENSION * 4), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset pionArray, (CELLDIMENSION * 5), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset pionArray, (CELLDIMENSION * 6), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset pionArray, (CELLDIMENSION * 7), (CELLDIMENSION * 6), 00h
+    call drawPiece, offset rookArray, 0, (CELLDIMENSION * 7), 00h
+    call drawPiece, offset rookArray, (CELLDIMENSION * 7), (CELLDIMENSION * 7), 00h
+    call drawPiece, offset knightArray, (CELLDIMENSION * 1), (CELLDIMENSION * 7), 00h
+    call drawPiece, offset knightArray, (CELLDIMENSION * 6), (CELLDIMENSION * 7), 00h
+    call drawPiece, offset bishopArray, (CELLDIMENSION * 2), (CELLDIMENSION * 7), 00h
+    call drawPiece, offset bishopArray, (CELLDIMENSION * 5), (CELLDIMENSION * 7), 00h
+    call drawPiece, offset queenArray, (CELLDIMENSION * 3), (CELLDIMENSION * 7), 00h
+    call drawPiece, offset kingArray, (CELLDIMENSION * 4), (CELLDIMENSION * 7), 00h
     ret
 endp loadPieces
 
 proc drawPiece
-    arg @@dataBuffer:dword, @@x_coord:dword, @@y_coord:dword
+    arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@color:dword
     uses eax, ebx, ecx, edx, edi
 
     mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
@@ -299,7 +339,9 @@ proc drawPiece
             push edx            ; store edx (byte in buffer index) because edx is used to store remainder after division
             xor edx, edx
             div ebx             ; y-index in eax, x-index in edx
-            call drawPixel, edx, eax, 0Fh
+            add edx, [@@x]
+            add eax, [@@y]
+            call drawPixel, edx, eax, [@@color]
             pop edx             ; restore edx
         @@continue:
             pop eax
@@ -508,8 +550,19 @@ DATASEG
     fontfilename db "GUI\FONT.BIN", 0
     fontarray db FONTFILE_SIZE dup (?)
     
-    pionFileName db "bitmaps/king.bin", 0
+    pionFileName db "bitmaps/pawn.bin", 0
+    kingFileName db "bitmaps/king.bin", 0
+    queenFileName db "bitmaps/queen.bin", 0
+    bishopFileName db "bitmaps/bishop.bin", 0
+    knightFileName db "bitmaps/knight.bin", 0
+    rookFileName db "bitmaps/rook.bin", 0
+
     pionArray dd PIECE_SIZE dup (?)
+    rookArray dd PIECE_SIZE dup (?)
+    knightArray dd PIECE_SIZE dup (?)
+    bishopArray dd PIECE_SIZE dup (?)
+    queenArray dd PIECE_SIZE dup (?)
+    kingArray dd PIECE_SIZE dup (?)
 
     whiteColor db 35h
     blackColor db 37h
