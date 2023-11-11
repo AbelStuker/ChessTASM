@@ -3,7 +3,7 @@
 # =============================================================================
 
 # Settings - Edit the names of the object and executable files.
-objects1 = CHESS.obj
+objects1 = MOUSE.obj CHESS.obj
 dest = CHESS.exe
 
 # =============================================================================
