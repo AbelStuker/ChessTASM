@@ -1,5 +1,5 @@
-CHESS.EXE
-CHESS.OBJ
 .vscode
 .DS_Store
 future.txt
+*.OBJ
+*.EXE
