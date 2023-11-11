@@ -458,23 +458,13 @@ endp offsetFromCoordinate
 ; ----------------------------------------------------------------------------
 PROC mouseHandler
     USES eax, ebx, ecx, edx
-	
+    ; We update the lastMouseX and lastMouseY variables. When the frame buffer is drawn again, these values will be used.
+    ; The x-coordinate is stored in cx, and the y-coordinate is stored in dx.
+    ; Since the lastMouseX and lastMouseY store dwords, we make sure the cx and dx registers are zero-extended to 32 bits.
     movzx ecx, cx
     movzx edx, dx
     mov [lastMouseX], ecx
     mov [lastMouseY], edx
-
-	;and bl, 3			; check for two mouse buttons (2 low end bits)
-	;jz @@skipit			; only execute if a mousebutton is pressed;
-
-    ;movzx eax, dx		; get mouse height
-	;mov edx, SCREENWIDTH
-	;mul edx				; obtain vertical offset in eax
-	;sar cx, 1			; horizontal cursor position is doubled in input 
-	;add ax, cx			; add horizontal offset
-	;add eax, VMEMADR	; eax now contains pixel address mouse is pointing to
-	;mov [framebuffer + eax], bl		; change color
-	;@@skipit:
     
     ret
 ENDP mouseHandler
