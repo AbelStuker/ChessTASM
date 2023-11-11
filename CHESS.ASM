@@ -10,6 +10,7 @@ MODEL FLAT, C
 ASSUME cs:_TEXT,ds:FLAT,es:FLAT,fs:FLAT,gs:FLAT
 
 INCLUDE "CHESS.INC"
+INCLUDE "MOUSE.INC"
 
 
 ; -------------------------------------------------------------------
@@ -172,11 +173,25 @@ endp determineColor
 
 
 PROC transferFrame
-	USES ecx, edi, esi
-	mov edi, 0A0000h
+	USES eax, ecx, edi, esi
+
+    ; We must save the color of the pixel at the mouse position, because it will be overwritten by the mouse pointer.
+    ; We don't want the framebuffer to contain the path the mouse pointer has taken, so we will replace the mouse pointer
+    ;   with the original pixel color afterwards.
+    call offsetFromCoordinate, [lastMouseX], [lastMouseY]       ; returns the offset of the mouse pointer in eax
+    mov bl, [framebuffer + eax]                                 ; save color of pixel at mouse pointer in bl
+    mov [framebuffer + eax], 0Fh                                ; overwrite pixel at mouse pointer with white color
+
+    ; transfer frame buffer
+	mov edi, VADDR
 	mov esi, offset framebuffer
 	mov ecx, 64000/4
 	rep movsd
+
+    ; restore color of pixel at mouse pointer
+    mov [framebuffer + eax], bl
+
+
 	ret
 ENDP transferFrame
 
@@ -255,6 +270,12 @@ proc loadPieces
     call loadPiece, offset queenFileName, offset queenArray
     call loadPiece, offset kingFileName, offset kingArray
 
+    call drawPieces
+    ret
+endp loadPieces
+
+proc drawPieces
+
     ; white pieces
     call drawPiece, offset pionArray, (CELLDIMENSION * 0), (CELLDIMENSION * 1), 0Fh
     call drawPiece, offset pionArray, (CELLDIMENSION * 1), (CELLDIMENSION * 1), 0Fh
@@ -291,7 +312,7 @@ proc loadPieces
     call drawPiece, offset queenArray, (CELLDIMENSION * 3), (CELLDIMENSION * 7), 00h
     call drawPiece, offset kingArray, (CELLDIMENSION * 4), (CELLDIMENSION * 7), 00h
     ret
-endp loadPieces
+endp drawPieces
 
 proc drawPiece
     arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@color:dword
@@ -393,89 +414,14 @@ endp drawPiece
 ;; --------
 
 
-proc loadFont
-    uses eax
-    call getFileHandle, offset fontfilename, 0
-    mov edx, eax
-    call readFile, edx, offset fontarray, FONTFILE_SIZE
-    call closeFile, edx
-endp loadFont
-
-; Plots a sequence of character to the screen
-proc drawString
-    arg @@x_coord:dword, @@y_coord:dword, @@text:dword, @@color:dword
-    uses eax, ebx
-
-    mov ebx, [@@text]
-    @@char_loop:
-        cmp [byte ptr ebx], 0
-        je @@end
-
-        movzx eax, [byte ptr ebx] ; zero extend
-        call drawCharacter, [@@x_coord], [@@y_coord], eax, [@@color]
-
-        add [@@x_coord], FONTCHAR_WIDTH*2
-        inc ebx
-        jmp @@char_loop
-
-@@end:
-    ret
-endp drawString
-
-; draw a single character on the screen
-proc drawCharacter
-    arg @@x_coord:dword, @@y_coord:dword, @@char:dword, @@color:dword
-    uses eax, ecx, edx, edi
-
-    mov eax, FONTCHAR_SIZE
-    mul [@@char]
-    lea edi, [fontarray + eax]
-
-    xor edx, edx
-    @@yLoop:
-        cmp edx, FONTCHAR_HEIGHT
-        je @@end
-        
-        mov ecx, (FONTCHAR_WIDTH-1)
-        @@xLoop:
-            cmp ecx, 0
-            jl @@xLoopEnd
-
-            movzx eax, [byte ptr edi]
-            shr eax, cl
-            and eax, 1
-            cmp eax, 1
-            jne @@continue
-
-            call drawPixel, [@@x_coord], [@@y_coord], [@@color]
-
-            @@continue:
-            inc [@@x_coord]
-            dec ecx
-            jmp @@xLoop
-
-            @@xLoopEnd:
-                inc [@@y_coord]
-                inc edi
-                inc edx
-                sub [@@x_coord], FONTCHAR_WIDTH
-                jmp @@yLoop
-
-@@end:
-    ret
-endp drawCharacter
-
 ; draws a single pixel onto the screen 
 proc drawPixel
-    arg @@x_coord:dword, @@y_coord:dword, @@color:dword
+    arg @@x_coordinate:dword, @@y_coordinate:dword, @@color:byte
     uses eax, ebx, edx
 
-    mov eax, SCREENWIDTH
-    mul [@@y_coord]                 ; multiply screenwidth with y-coordinate -> first pixel address of line in eax
-    add eax, [@@x_coord]            ; add x-coordinate to first pixel address of line to get complete coordinate address in eax
-
+    call offsetFromCoordinate, [@@x_coordinate], [@@y_coordinate]
     lea ebx, [framebuffer + eax]
-    mov edx, [@@color]
+    mov dl, [@@color]
 
     ; Initially, we made a mistake by moving edx to [ebx], which resulted in horizontally surrounding pixels turning black.
     ; The problem was that we moved the entire DWORD color (edx), overwriting 32 bits instead of only 8 (for a single pixel).
@@ -483,7 +429,55 @@ proc drawPixel
     mov [ebx], dl
 
     ret
-endp
+endp drawPixel
+
+proc offsetFromCoordinate
+    arg @@x_coordinate:dword, @@y_coordinate:dword
+    mov eax, [@@x_coordinate]
+    mov eax, [@@y_coordinate]
+    mov eax, SCREENWIDTH
+    mul [@@y_coordinate]                 ; multiply screenwidth with y-coordinate -> first pixel address of line in eax
+    add eax, [@@x_coordinate]            ; add x-coordinate to first pixel address of line to get complete coordinate address in eax
+    ret
+endp offsetFromCoordinate
+
+; ----------------------------------------------------------------------------
+; Mouse function
+; AX = condition mask causing call
+; CX = horizontal cursor position
+; DX = vertical cursor position
+; DI = horizontal counts
+; SI = vertical counts
+; BX = button state:
+;      |F-2|1|0|
+;        |  | `--- left button (1 = pressed)
+;        |  `---- right button (1 = pressed)
+;        `------ unused
+; DS = DATASEG
+; ES = DATASEG
+; ----------------------------------------------------------------------------
+PROC mouseHandler
+    USES eax, ebx, ecx, edx
+	
+    movzx ecx, cx
+    movzx edx, dx
+    mov [lastMouseX], ecx
+    mov [lastMouseY], edx
+
+	;and bl, 3			; check for two mouse buttons (2 low end bits)
+	;jz @@skipit			; only execute if a mousebutton is pressed;
+
+    ;movzx eax, dx		; get mouse height
+	;mov edx, SCREENWIDTH
+	;mul edx				; obtain vertical offset in eax
+	;sar cx, 1			; horizontal cursor position is doubled in input 
+	;add ax, cx			; add horizontal offset
+	;add eax, VMEMADR	; eax now contains pixel address mouse is pointing to
+	;mov [framebuffer + eax], bl		; change color
+	;@@skipit:
+    
+    ret
+ENDP mouseHandler
 
 PROC main
 	sti
@@ -494,10 +488,24 @@ PROC main
 
 	; set video mode, init registers
     call setupVideo
+    
+    ; check if the mouse is present
+    call mouse_present
+    cmp eax, 1
+    je @@mouse_present
+    ; if mouse is not present, print to stdout and finish
+    mov ah, 9
+    mov edx, offset msgMissingMouse
+    int 21h
+    jmp @@finish
+
+    ; install mouse if present
+    @@mouse_present:
+        call mouse_install, offset mouseHandler
 
     call drawBoard
     call loadPieces
-
+    
     ;mov eax, [dword ptr string1]
     ;call drawString, 50, 50, eax, 3
 	
@@ -505,7 +513,11 @@ PROC main
 
         ; TODO frame must be cleared if necessary
         ; TODO something with VBlank
+        ;call drawBoard
+        ;call drawPieces
+        
         call transferFrame
+
         
         ; check for early termination
         xor al, al
@@ -517,6 +529,7 @@ PROC main
     
 
     @@finish:
+        call mouse_uninstall
         call terminateProcess
 
 
@@ -529,9 +542,6 @@ ENDP main
 ; DATA
 ; -------------------------------------------------------------------
 DATASEG
-    string0 db "TestString", 13, 10, '$'
-    string1 db "Another Thing", 13, 10, '$'
-    poisonPixel dd 8
     framebuffer db 64000 dup (0)
     selectedcell dd 1
     leftcellvisible dw 0
@@ -555,6 +565,11 @@ DATASEG
 
     whiteColor db 35h
     blackColor db 37h
+
+    lastMouseX dd 0
+    lastMouseY dd 0
+
+    msgMissingMouse db 'Mouse missing! Terminating ...', 13, 10, '$'
     
 
 ; -------------------------------------------------------------------
