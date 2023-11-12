@@ -19,26 +19,25 @@ INCLUDE "MOUSE.INC"
 CODESEG
 
 
-PROC setupVideo
+proc setupVideo
 	USES eax
 	mov ax,13h
 	
 	int 10h
 	ret
-ENDP setupVideo
+endp setupVideo
 ;-----------------------------------------------------------------------?
-PROC unsetupVideo
+proc unsetupVideo
 	USES eax
 	mov ax,03h
 	
 	int 10h
 	ret
-ENDP unsetupVideo
+endp unsetupVideo
 ;-----------------------------------------------------------------------?
 
 
-
-PROC displayString
+proc displayString
     ARG @@row:DWORD, @@column:DWORD, @@offset:DWORD
     USES EAX, EBX, EDX
     MOV EDX, [@@row]    ; row in EDX
@@ -58,7 +57,7 @@ PROC displayString
     MOV EDX, [@@offset] ; offset of ’$’-terminated string in EDX
     INT 21H             ; raise interrupt
     RET
-ENDP displayString
+endp displayString
 
 
 
@@ -112,26 +111,27 @@ proc drawBoard
         cmp edx, CELLS
         jl @@drawRow
 
+    call drawPieces
     ret
     
 endp drawBoard
 
 proc drawCell
     uses eax, edx, ecx
-    arg @@xPos:DWORD, @@yPos:DWORD
+    arg @@x:dword, @@y:dword
 
-    mov eax, [@@yPos]
+    mov eax, [@@y]
     mov edx, CELLDIMENSION
     mul edx
     mov edx, SCREENWIDTH
     mul edx                 
     mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
-    mov eax, [@@xPos] 
+    mov eax, [@@x] 
     mov edx, CELLDIMENSION
     mul edx                 ; eax contains the x-coordinate of the top-left corner of the cell
     add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
-
-    call determineColor, [@@xPos], [@@yPos]     ; color in al
+    
+    call determineCellColor, [@@x], [@@y]     ; color in al
 
     xor edx, edx    
     @@verticalLoop:
@@ -150,15 +150,26 @@ proc drawCell
 
 endp drawCell
 
-proc determineColor
-    arg @@xPos:DWORD, @@yPos:DWORD
+proc determineCellColor
+    arg @@x:dword, @@y:dword
     ; returns eax
+    mov eax, [@@x]
+    movzx ecx, [selectedCellX]
+    cmp eax, ecx
+    jne @@getColor
+    mov eax, [@@y]
+    movzx ecx, [selectedCellY]
+    cmp eax, ecx
+    jne @@getColor
+    xor eax, eax
+    mov al, 02h
+    jmp @@return
 
-    mov eax, [@@xPos]
-    add eax, [@@yPos]       ; xPos + yPos
-    shr eax, 1              ; test whether sum is even: bitshift 1 position to the right
-    jc @@unevenColor        ; if carry flag (CF) is 1, then the sum was uneven
-
+    @@getColor:
+        mov eax, [@@x]
+        add eax, [@@y]          ; xPos + yPos
+        shr eax, 1              ; test whether sum is even: bitshift 1 position to the right
+        jc @@unevenColor        ; if carry flag (CF) is 1, then the sum was uneven
     @@evenColor:
         mov al, [whiteColor]
         jmp @@return
@@ -169,10 +180,10 @@ proc determineColor
     @@return:
         ret
 
-endp determineColor
+endp determineCellColor
 
 
-PROC transferFrame
+proc transferFrame
 	USES eax, ecx, edi, esi
 
     ; We must save the color of the pixel at the mouse position, because it will be overwritten by the mouse pointer.
@@ -193,16 +204,16 @@ PROC transferFrame
 
 
 	ret
-ENDP transferFrame
+endp transferFrame
 
 ; Terminate the program.
-PROC terminateProcess
+proc terminateProcess
 	USES eax
 	call unsetupVideo
 	mov	ax,04C00h
 	int 21h
 	ret
-ENDP terminateProcess
+endp terminateProcess
 
 
 
@@ -269,54 +280,213 @@ proc loadPieces
     call loadPiece, offset bishopFileName, offset bishopArray
     call loadPiece, offset queenFileName, offset queenArray
     call loadPiece, offset kingFileName, offset kingArray
-
-    call drawPieces
     ret
 endp loadPieces
 
 proc drawPieces
+    uses eax, ebx, ecx, edx, edi
+
+    mov edi, offset pieces
+    mov ecx, PIECEAMOUNT
+    @@drawLoop:
+        push ecx
+        movzx eax, [word ptr edi]
+        push eax
+        call typeFromEncPiece, eax
+        call pieceArrayFromType, eax
+        mov edx, eax
+        pop eax
+        push eax
+        call playerFromEncPiece, eax
+        call colorFromPlayer, eax
+        mov ecx, eax
+        pop eax
+        call coordinatesFromEncPiece, eax
+        call drawPiece, edx, eax, ebx, ecx
+        add edi, 2
+        pop ecx
+        loop @@drawLoop
 
     ; white pieces
-    call drawPiece, offset pionArray, (CELLDIMENSION * 0), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 1), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 2), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 3), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 4), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 5), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 6), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 7), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset rookArray, 0, 0, 0Fh
-    call drawPiece, offset rookArray, (CELLDIMENSION * 7), 0, 0Fh
-    call drawPiece, offset knightArray, (CELLDIMENSION * 1), 0, 0Fh
-    call drawPiece, offset knightArray, (CELLDIMENSION * 6), 0, 0Fh
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 2), 0, 0Fh
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 5), 0, 0Fh
-    call drawPiece, offset queenArray, (CELLDIMENSION * 3), 0, 0Fh
-    call drawPiece, offset kingArray, (CELLDIMENSION * 4), 0, 0Fh
+    ;call drawPiece, offset pionArray, 0, 1, 0Fh
+    ;call drawPiece, offset pionArray, 1, 1, 0Fh
+    ;call drawPiece, offset pionArray, 2, 1, 0Fh
+    ;call drawPiece, offset pionArray, 3, 1, 0Fh
+    ;call drawPiece, offset pionArray, 4, 1, 0Fh
+    ;call drawPiece, offset pionArray, 5, 1, 0Fh
+    ;call drawPiece, offset pionArray, 6, 1, 0Fh
+    ;call drawPiece, offset pionArray, 7, 1, 0Fh
+    ;call drawPiece, offset rookArray, 0, 0, 0Fh
+    ;call drawPiece, offset rookArray, 7, 0, 0Fh
+    ;call drawPiece, offset knightArray, 1, 0, 0Fh
+    ;call drawPiece, offset knightArray, 6, 0, 0Fh
+    ;call drawPiece, offset bishopArray, 2, 0, 0Fh
+    ;call drawPiece, offset bishopArray, 5, 0, 0Fh
+    ;call drawPiece, offset queenArray, 3, 0, 0Fh
+    ;call drawPiece, offset kingArray, 4, 0, 0Fh
 
     ; black pieces
-    call drawPiece, offset pionArray, (CELLDIMENSION * 0), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 1), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 2), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 3), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 4), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 5), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 6), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 7), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset rookArray, 0, (CELLDIMENSION * 7), 00h
-    call drawPiece, offset rookArray, (CELLDIMENSION * 7), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset knightArray, (CELLDIMENSION * 1), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset knightArray, (CELLDIMENSION * 6), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 2), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 5), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset queenArray, (CELLDIMENSION * 3), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset kingArray, (CELLDIMENSION * 4), (CELLDIMENSION * 7), 00h
+    ;call drawPiece, offset pionArray, 0, 6, 00h
+    ;call drawPiece, offset pionArray, 1, 6, 00h
+    ;call drawPiece, offset pionArray, 2, 6, 00h
+    ;call drawPiece, offset pionArray, 3, 6, 00h
+    ;call drawPiece, offset pionArray, 4, 6, 00h
+    ;call drawPiece, offset pionArray, 5, 6, 00h
+    ;call drawPiece, offset pionArray, 6, 6, 00h
+    ;call drawPiece, offset pionArray, 7, 6, 00h
+    ;call drawPiece, offset rookArray, 0, 7, 00h
+    ;call drawPiece, offset rookArray, 7, 7, 00h
+    ;call drawPiece, offset knightArray, 1, 7, 00h
+    ;call drawPiece, offset knightArray, 6, 7, 00h
+    ;call drawPiece, offset bishopArray, 2, 7, 00h
+    ;call drawPiece, offset bishopArray, 5, 7, 00h
+    ;call drawPiece, offset queenArray, 3, 7, 00h
+    ;call drawPiece, offset kingArray, 4, 7, 00h
+
     ret
 endp drawPieces
+
+proc updatePiecePosition
+    arg @@pieceAddress:dword, @@x:dword, @@y:dword
+    uses eax, ebx, edx, edi
+    mov edi, [@@pieceAddress]
+    movzx eax, [word ptr edi]
+    and eax, 11111000000b
+    mov ebx, [@@x]
+    mov edx, [@@y]
+    and ebx, 111b       ; Just to be sure that the x-coordinate is not larger than 7.
+    and edx, 111b       ;
+    shl ebx, 3          ; Shift 3 y coordinate bits 3 positions to the left to make room for the 3 x coordinate bits.
+    or ebx, edx         ; Combine the x and the y coordinate bits.
+    or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
+    mov [edi], eax
+    ret
+endp updatePiecePosition
+
+proc coordinatesFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    xor ebx, ebx
+    mov eax, [@@encodedPiece]
+    and eax, 111000b
+    shr eax, 3
+    mov ebx, [@@encodedPiece]
+    and ebx, 111b
+    ret
+endp coordinatesFromEncPiece
+
+proc typeFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    mov eax, [@@encodedPiece]
+    and eax, 1111000000b
+    shr eax, 6
+    ret
+endp typeFromEncPiece
+
+proc playerFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    mov eax, [@@encodedPiece]
+    and eax, 10000000000b
+    shr eax, 10
+    ret
+endp playerFromEncPiece
+
+proc colorFromPlayer
+    arg @@player:dword
+    xor eax, eax
+    mov eax, [@@player]
+    cmp eax, 0
+    je @@white
+    movzx eax, [blackPieceColor]
+    jmp @@return
+    @@white:
+        movzx eax, [whitePieceColor]
+    @@return:
+        ret
+endp colorFromPlayer
+
+proc pieceArrayFromType
+    arg @@type:dword
+    mov eax, [@@type]
+    cmp eax, 7
+    jle @@typePawn
+    cmp eax, 9
+    jle @@typeRook
+    cmp eax, 11
+    jle @@typeKnight
+    cmp eax, 13
+    jle @@typeBishop
+    cmp eax, 14
+    je @@typeQueen
+    cmp eax, 15
+    je @@typeKing
+
+    @@typePawn:
+        mov eax, offset pionArray
+        jmp @@return
+    @@typeRook:
+        mov eax, offset rookArray
+        jmp @@return
+    @@typeKnight:
+        mov eax, offset knightArray
+        jmp @@return
+    @@typeBishop:
+        mov eax, offset bishopArray
+        jmp @@return
+    @@typeQueen:
+        mov eax, offset queenArray
+        jmp @@return
+    @@typeKing:
+        mov eax, offset kingArray
+
+    @@return:
+        ret
+endp pieceArrayFromType
+
+proc findPieceAddress
+    arg @@x:dword, @@y:dword
+    uses edi, ecx
+    xor eax, eax
+    xor ebx, ebx
+    lea edi, [word ptr pieces]
+    mov ecx, PIECEAMOUNT
+    @@search:
+        movzx eax, [word ptr edi]
+        call coordinatesFromEncPiece, eax
+        cmp eax, [@@x]
+        jne @@next
+        cmp ebx, [@@y]
+        je @@found
+
+    @@next:
+        add edi, 2
+        loop @@search
+        jmp @@notFound
+    @@found:
+        mov eax, edi
+        jmp @@return
+    @@notFound:
+        xor eax, eax
+    @@return:
+        ret
+endp findPieceAddress
 
 proc drawPiece
     arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@color:dword
     uses eax, ebx, ecx, edx, edi
+
+    ; Convert the grid x- and y-coorindates to pixel coordinates.
+    mov eax, [@@x]
+    mov ebx, CELLDIMENSION
+    mul ebx
+    mov [@@x], eax
+
+    mov eax, [@@y]
+    mov ebx, CELLDIMENSION
+    mul ebx
+    mov [@@y], eax
 
     mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
     mov edx, 0
@@ -441,6 +611,81 @@ proc offsetFromCoordinate
     ret
 endp offsetFromCoordinate
 
+proc gridCoordinateFromPixelCoordinate
+    arg @@xPixel:dword, @@yPixel:dword
+    uses edx, ecx
+    mov ecx, CELLDIMENSION
+
+    xor ebx, ebx
+    xor edx, edx    ; We must clear the edx register before using the div instruction.
+    mov eax, [@@yPixel]
+    div ecx
+    mov ebx, eax
+    xor edx, edx
+    mov eax, [@@xPixel]
+    div ecx
+    ret
+endp gridCoordinateFromPixelCoordinate
+
+proc selectedPiece
+    uses ebx
+    movzx eax, [selectedCellX]
+    cmp eax, 8
+    jge @@notSelected
+    movzx ebx, [selectedCellY]
+    cmp ebx, 8
+    jge @@notSelected
+    jmp @@selected
+
+    @@notSelected:
+        xor eax, eax
+        jmp @@return
+    @@selected:
+        call findPieceAddress, eax, ebx
+    @@return:
+        ret
+endp selectedPiece
+
+proc selectCell
+    arg @@xPixel:dword , @@yPixel:dword
+    uses eax, ebx, edx
+    call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; returns the grid x-coordinate in eax and the grid y-coordinate in ebx
+    push eax
+    push ebx
+    call findPieceAddress, eax, ebx         ; Returns the address of the piece in eax. If no piece is found, eax is set to 0.
+    cmp eax, 0
+    je @@destinationSelection
+    mov eax, [eax]
+    call playerFromEncPiece, eax             ; Returns the player (0 or 1) in al
+    movzx ebx, [currentTurn]
+    cmp eax, ebx
+    jne @@unselect
+    pop ebx
+    pop eax
+    mov [selectedCellX], al
+    mov [selectedCellY], bl
+    jmp @@return
+
+    @@unselect:
+        pop ebx
+        pop eax
+        mov [selectedCellX], 8
+        mov [selectedCellY], 8
+
+    @@destinationSelection:
+        call selectedPiece      ; Returns 1 in eax if a piece is selected, 0 if not. If a piece is selected, we check if the piece can be moved to the destination.
+        cmp eax, 0              ; If no piece is selected, we do nothing.
+        je @@return
+        mov edx, eax
+        pop ebx
+        pop eax
+        call updatePiecePosition, edx, eax, ebx
+
+    @@return:
+        call drawBoard
+        ret
+endp selectCell
+
 ; ----------------------------------------------------------------------------
 ; Mouse function
 ; AX = condition mask causing call
@@ -466,7 +711,14 @@ PROC mouseHandler
     mov [lastMouseX], ecx
     mov [lastMouseY], edx
     
-    ret
+    ; We check if the left mouse button is pressed. If this is the case, we update the selected cell.
+    and bl, 3
+    jz @@return
+    call selectCell, ecx, edx
+
+    @@return:
+        call transferFrame
+        ret
 ENDP mouseHandler
 
 PROC main
@@ -478,27 +730,35 @@ PROC main
 
 	; set video mode, init registers
     call setupVideo
+    mov eax, 78
+    mov ebx, 25
+    call selectCell, eax, ebx
     
-    ; check if the mouse is present
+    ; We check if the mouse is present. If this is not the case, we print a message to the screen and terminate the program.
+    ; If the mouse is present, we install the mouse handler.
     call mouse_present
     cmp eax, 1
     je @@mouse_present
-    ; if mouse is not present, print to stdout and finish
     mov ah, 9
     mov edx, offset msgMissingMouse
     int 21h
     jmp @@finish
-
-    ; install mouse if present
     @@mouse_present:
         call mouse_install, offset mouseHandler
 
-    call drawBoard
+    ; Load the pieces from the bitmap files and draw the board with pieces.
     call loadPieces
+    call drawBoard
+    call transferFrame
+
+    ; TEST CASE
+    mov eax, 5
+    mov ebx, 12
+    call selectCell, eax, ebx
+    mov eax, 50
+    mov ebx, 56
+    call selectCell, eax, ebx
     
-    ;mov eax, [dword ptr string1]
-    ;call drawString, 50, 50, eax, 3
-	
     @@animation_loop:
 
         ; TODO frame must be cleared if necessary
@@ -506,16 +766,16 @@ PROC main
         ;call drawBoard
         ;call drawPieces
         
-        call transferFrame
+        ;call transferFrame
 
         
-        ; check for early termination
+        ; check for termination by ESC key
         xor al, al
         mov	ah, 01h
         int	16h
         cmp	al, 1Bh
         je	@@finish
-        loop @@animation_loop
+        jmp @@animation_loop
     
 
     @@finish:
@@ -532,12 +792,36 @@ ENDP main
 ; DATA
 ; -------------------------------------------------------------------
 DATASEG
+    
+    ; Each chess piece is encoded in a word. The format is as follows (where B represents a bit):
+    ;       B   BBBB   BBB   BBB
+    ;       |   |      |     |
+    ;      (1) (2)    (3)   (4)
+    ;
+    ; (1):  PLAYER
+    ;       0 = white
+    ;       1 = black
+    ; (2):  PIECE TYPE
+    ;       0000 until 0111     = pawns
+    ;       1000 and 1001       = rooks
+    ;       1010 and 1011       = knights
+    ;       1100 and 1101       = bishops
+    ;       1110                = queen
+    ;       1111                = king
+    ; (3):  X-COORDINATE
+    ; (4):  Y-COORDINATE
+    
+    pieces  dw 01000000000b, 01010001000b, 01100010000b, 01110011000b, 01111100000b, 01101101000b, 01011110000b, 01001111000b
+            dw 00000000001b, 00001001001b, 00010010001b, 00011011001b, 00100100001b, 00101101001b, 00110110001b, 00111111001b
+            dw 11000000110b, 11010001110b, 11100010110b, 11110011110b, 11111100110b, 11101101110b, 11011110110b, 11001111110b
+            dw 10000000111b, 10001001111b, 10010010111b, 10011011111b, 10100100111b, 10101101111b, 10110110111b, 10111111111b
+
     framebuffer db 64000 dup (0)
     selectedcell dd 1
     leftcellvisible dw 0
     rightcellvisible dw 0
     fontfilename db "GUI\FONT.BIN", 0
-    fontarray db FONTFILE_SIZE dup (?)
+    ;fontarray db FONTFILE_SIZE dup (?)
     
     pionFileName db "bitmaps/pawn.bin", 0
     kingFileName db "bitmaps/king.bin", 0
@@ -556,10 +840,18 @@ DATASEG
     whiteColor db 35h
     blackColor db 37h
 
+    whitePieceColor db 0Fh
+    blackPieceColor db 00h
+
     lastMouseX dd 0
     lastMouseY dd 0
 
     msgMissingMouse db 'Mouse missing! Terminating ...', 13, 10, '$'
+
+    selectedCellX db 8
+    selectedCellY db 8
+
+    currentTurn db 0
     
 
 ; -------------------------------------------------------------------
