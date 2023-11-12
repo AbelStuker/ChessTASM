@@ -514,6 +514,22 @@ proc calculatePossibleMove
                 je @@testPathEmpty
                 jmp @@notPossible
         @@typeKnight:
+            call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+            mov ebx, eax
+            call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+            cmp eax, 1
+            je @@checkYDifference2
+            cmp eax, 2
+            je @@checkYDifference1
+            jmp @@notPossible
+            @@checkYDifference2:
+                cmp ebx, 2
+                je @@possible
+                jmp @@notPossible
+            @@checkYDifference1:
+                cmp ebx, 1
+                je @@possible
+                jmp @@notPossible
         @@typeBishop:
         @@typeQueen:
         @@typeKing:
