@@ -467,11 +467,187 @@ proc isPathEmpty
         ret
 endp isPathEmpty
 
+proc checkPawnMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword, @@destinationOccupation:dword, @@player:byte
+    uses ebx
+    cmp [@@player], 1
+    je @@blackPawn
+    jmp @@whitePawn
 
+    @@blackPawn:
+        mov ebx, [@@pieceY]
+        sub ebx, [@@destinationY]
+        jmp @@pawnTestY
+    @@whitePawn:
+        mov ebx, [@@destinationY]
+        sub ebx, [@@pieceY]
+    @@pawnTestY:
+        cmp ebx, 1
+        je @@pawnTestX
+        cmp ebx, 2
+        je @@pawnTestFirstMove
+        jmp @@notPossible
+    @@pawnTestFirstMove:
+        call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+        cmp eax, 0
+        jne @@notPossible
+
+        cmp [@@player], 1
+        je @@pawnTestFirstMoveBlack
+        jmp @@pawnTestFirstMoveWhite
+        @@pawnTestFirstMoveBlack:
+            cmp [@@pieceY], 6
+            je @@possible
+            jmp @@notPossible
+        @@pawnTestFirstMoveWhite:
+            cmp [@@pieceY], 1
+            je @@possible
+            jmp @@notPossible
+    @@pawnTestX:
+        call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+        cmp eax, 0
+        je @@possible
+        cmp eax, 1
+        je @@testPawnDiagonal
+        jmp @@notPossible
+    @@testPawnDiagonal:
+        cmp [@@destinationOccupation], 0        ; If the diagonal cell is not occupied, the move is not possible.
+        je @@notPossible
+        jmp @@possible                          ; If the diagonal cell is occupied, it must be occupied by the other player (because we already checked if it was occupied by the same player).
+
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+
+endp checkPawnMove
+
+proc checkRookMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, 0
+    jne @@testRookYsteady
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    cmp eax, 0
+    jne @@testRookXsteady
+    jmp @@notPossible
+    @@testRookYsteady:
+        mov eax, [@@pieceY]
+        cmp eax, [@@destinationY]
+        je @@testPathEmpty
+        jmp @@notPossible
+    @@testRookXsteady:
+        mov eax, [@@pieceX]
+        cmp eax, [@@destinationX]
+        je @@testPathEmpty
+        jmp @@notPossible
+
+    @@testPathEmpty:
+            call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkRookMove
+
+proc checkKnightMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    uses ebx
+
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    mov ebx, eax
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, 1
+    je @@checkYDifference2
+    cmp eax, 2
+    je @@checkYDifference1
+    jmp @@notPossible
+    @@checkYDifference2:
+        cmp ebx, 2
+        je @@possible
+        jmp @@notPossible
+    @@checkYDifference1:
+        cmp ebx, 1
+        je @@possible
+        jmp @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkKnightMove
+
+proc checkBishopMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    uses ebx
+
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    mov ebx, eax
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, ebx
+    jne @@notPossible
+    call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+    cmp eax, 0
+    je @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkBishopMove
+
+proc checkQueenMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+    cmp eax, 0
+    je @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkQueenMove
+
+proc checkKingMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    cmp eax, 1
+    je @@possible
+    cmp eax, 0
+    jne @@notPossible
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, 1
+    je @@possible
+    jmp @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkKingMove
 
 proc calculatePossibleMove
     arg @@encodedPiece:dword, @@destinationX:dword, @@destinationY:dword
-    local @@player:byte, @@type:byte, @@pieceX:dword, @@pieceY:dword, @@destinationOccupation:dword
+    local @@player:dword, @@type:byte, @@pieceX:dword, @@pieceY:dword, @@destinationOccupation:dword
     uses ebx
 
     call coordinatesFromEncPiece, [@@encodedPiece]
@@ -480,7 +656,7 @@ proc calculatePossibleMove
     call typeFromEncPiece, [@@encodedPiece]
     mov [@@type], al
     call playerFromEncPiece, [@@encodedPiece]
-    mov [@@player], al
+    mov [@@player], eax
 
     ; Check if the destination cell is occupied by another piece. If this piece is from the same player, the move is not possible.
     ; If the piece is from the other player, it must be checked wheter killing the piece is possible.
@@ -506,106 +682,44 @@ proc calculatePossibleMove
         je @@typeQueen
         cmp al, 15
         je @@typeKing
+        jmp @@notPossible
 
         @@typePawn:
-            cmp [@@player], 1
-            je @@blackPawn
-            jmp @@whitePawn
-
-            @@blackPawn:
-                mov ebx, [@@pieceY]
-                sub ebx, [@@destinationY]
-                jmp @@pawnTestY
-            @@whitePawn:
-                mov ebx, [@@destinationY]
-                sub ebx, [@@pieceY]
-            @@pawnTestY:
-                cmp ebx, 1
-                je @@pawnTestX
-                cmp ebx, 2
-                je @@pawnTestFirstMove
-                jmp @@notPossible
-            @@pawnTestFirstMove:
-                call getAbsoluteDifference, [@@pieceX], [@@destinationX]
-                cmp eax, 0
-                jne @@notPossible
-
-                cmp [@@player], 1
-                je @@pawnTestFirstMoveBlack
-                jmp @@pawnTestFirstMoveWhite
-                @@pawnTestFirstMoveBlack:
-                    cmp [@@pieceY], 6
-                    je @@possible
-                    jmp @@notPossible
-                @@pawnTestFirstMoveWhite:
-                    cmp [@@pieceY], 1
-                    je @@possible
-                    jmp @@notPossible
-            @@pawnTestX:
-                call getAbsoluteDifference, [@@pieceX], [@@destinationX]
-                cmp eax, 0
-                je @@possible
-                cmp eax, 1
-                je @@testPawnDiagonal
-                jmp @@notPossible
-            @@testPawnDiagonal:
-                cmp [@@destinationOccupation], 0        ; If the diagonal cell is not occupied, the move is not possible.
-                je @@notPossible
-                jmp @@possible                          ; If the diagonal cell is occupied, it must be occupied by the other player (because we already checked if it was occupied by the same player).
-
-        @@typeRook:
-            call getAbsoluteDifference, [@@pieceX], [@@destinationX]
-            cmp eax, 0
-            jne @@testRookYsteady
-            call getAbsoluteDifference, [@@pieceY], [@@destinationY]
-            cmp eax, 0
-            jne @@testRookXsteady
-            jmp @@notPossible
-            @@testRookYsteady:
-                mov eax, [@@pieceY]
-                cmp eax, [@@destinationY]
-                je @@testPathEmpty
-                jmp @@notPossible
-            @@testRookXsteady:
-                mov eax, [@@pieceX]
-                cmp eax, [@@destinationX]
-                je @@testPathEmpty
-                jmp @@notPossible
-        @@typeKnight:
-            call getAbsoluteDifference, [@@pieceY], [@@destinationY]
-            mov ebx, eax
-            call getAbsoluteDifference, [@@pieceX], [@@destinationX]
-            cmp eax, 1
-            je @@checkYDifference2
-            cmp eax, 2
-            je @@checkYDifference1
-            jmp @@notPossible
-            @@checkYDifference2:
-                cmp ebx, 2
-                je @@possible
-                jmp @@notPossible
-            @@checkYDifference1:
-                cmp ebx, 1
-                je @@possible
-                jmp @@notPossible
-        @@typeBishop:
-            call getAbsoluteDifference, [@@pieceY], [@@destinationY]
-            mov ebx, eax
-            call getAbsoluteDifference, [@@pieceX], [@@destinationX]
-            cmp eax, ebx
-            jne @@notPossible
-            jmp @@testPathEmpty
-            
-        @@typeQueen:
-        @@typeKing:
-            jmp @@possible
-
-        @@testPathEmpty:
-            call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+            call checkPawnMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY], [@@destinationOccupation], [@@player]
             cmp eax, 0
             je @@notPossible
             jmp @@possible
-        
+
+        @@typeRook:
+            call checkRookMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+        @@typeKnight:
+            call checkKnightMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+        @@typeBishop:
+            call checkBishopMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+            
+        @@typeQueen:
+            call checkQueenMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+        @@typeKing:
+            call checkKingMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
     @@possible:
         mov eax, [@@encodedPiece]
         jmp @@return
