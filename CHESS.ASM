@@ -325,6 +325,92 @@ proc getAbsoluteDifference
         ret
 endp getAbsoluteDifference
 
+proc getSmallestValue
+    arg @@a:dword, @@b:dword
+    mov eax, [@@a]
+    cmp eax, [@@b]
+    jle @@return
+    mov eax, [@@b]
+    @@return:
+        ret
+endp getSmallestValue
+
+proc isPathEmpty
+    arg @@startX:dword, @@endX:dword, @@startY:dword, @@endY:dword
+    local @@startVal:dword, @@endVal:dword
+    uses ecx, edx, ebx
+
+    mov edx, [@@startY]
+    cmp edx, [@@endY]
+    je @@prepareHorizontal
+    mov edx, [@@startX]
+    cmp edx, [@@endX]
+    je @@prepareVertical
+    jmp @@notEmpty          ; In case the path between the start and end coordinates is neither horizontal nor vertical, we say the path is not empty.
+
+    @@prepareHorizontal:
+        mov eax, [@@startX]
+        mov [@@startVal], eax
+        mov eax, [@@endX]
+        mov [@@endVal], eax
+        jmp @@check
+    @@prepareVertical:
+        mov eax, [@@startY]
+        mov [@@startVal], eax
+        mov eax, [@@endY]
+        mov [@@endVal], eax
+
+    @@check:
+        
+        ; Move the difference between the start and end coordinate to ecx.
+        call getAbsoluteDifference, [@@startVal], [@@endVal]
+        mov ecx, eax
+        dec ecx     ; Since we don't want to check the end coordinate, we substract 1 from ecx.
+                    ;       The destination cell can not contain an own piece, since it would be selected instead of the cell as destination.
+                    ;       The destination cell can be a piece of the other player, in which case the move is possible and that piece will die.
+
+        ; Move the smallest x-value to edx.
+        call getSmallestValue, [@@startVal], [@@endVal]
+        mov edx, eax
+        inc edx     ; Since the first cell contains the piece we are trying to move, we must exclude this cell from the check because it will never be empty.
+
+        jcxz @@entirePathEmpty      ; If the destination cell is next to the piece we are trying to move, the path in between is non-existing and therefore always empty.
+
+        ; Looping over the path from the smallest x-value to the largest x-value.
+        ; When a piece is found, the path is not empty.
+        @@testEmpty:
+            ; To know which x- and y-values must be used, we must check (again) how the path is traversed (horzontally or vertically).
+            mov ebx, [@@startY]
+            cmp ebx, [@@endY]
+            je @@testHorizontal
+            ; In case of vertical traversal, the edx contains the y-value.
+            call findPieceAddress, [@@startX], edx
+            jmp @@continue
+            ; In case of horizontal traversal, the edx contains the x-value.
+            @@testHorizontal:
+                call findPieceAddress, edx, [@@startY] 
+            @@continue:
+                cmp eax, 0      ; If the cell is empty, eax is set to 0.
+                je @@empty
+                jmp @@notEmpty
+
+            @@empty:
+                inc edx
+                loop @@testEmpty
+                jmp @@entirePathEmpty
+    
+
+    @@notEmpty:
+        xor eax, eax
+        jmp @@return
+    @@entirePathEmpty:
+        mov eax, 1
+    @@return:
+        ret
+endp isPathEmpty
+
+
+
 proc calculatePossibleMove
     arg @@encodedPiece:dword, @@destinationX:dword, @@destinationY:dword
     local @@player:byte, @@type:byte, @@pieceX:dword, @@pieceY:dword, @@destinationOccupation:dword
@@ -345,7 +431,7 @@ proc calculatePossibleMove
     cmp eax, 0
     je @@checkMove
     call playerFromEncPiece, [dword ptr eax]
-    cmp al, [currentTurn]
+    cmp al, [currentTurn]   ; TODO remove this check because that other piece would have been selected as piece and not the cell as destination
     je @@notPossible
 
     @@checkMove:
@@ -410,10 +496,33 @@ proc calculatePossibleMove
                 jmp @@possible                          ; If the diagonal cell is occupied, it must be occupied by the other player (because we already checked if it was occupied by the same player).
 
         @@typeRook:
+            call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+            cmp eax, 0
+            jne @@testRookYsteady
+            call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+            cmp eax, 0
+            jne @@testRookXsteady
+            jmp @@notPossible
+            @@testRookYsteady:
+                mov eax, [@@pieceY]
+                cmp eax, [@@destinationY]
+                je @@testPathEmpty
+                jmp @@notPossible
+            @@testRookXsteady:
+                mov eax, [@@pieceX]
+                cmp eax, [@@destinationX]
+                je @@testPathEmpty
+                jmp @@notPossible
         @@typeKnight:
         @@typeBishop:
         @@typeQueen:
         @@typeKing:
+            jmp @@possible
+
+        @@testPathEmpty:
+            call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
             jmp @@possible
         
     @@possible:
@@ -813,9 +922,6 @@ PROC main
 
 	; set video mode, init registers
     call setupVideo
-    mov eax, 78
-    mov ebx, 25
-    call selectCell, eax, ebx
     
     ; We check if the mouse is present. If this is not the case, we print a message to the screen and terminate the program.
     ; If the mouse is present, we install the mouse handler.
@@ -836,10 +942,16 @@ PROC main
 
     ; TEST CASE
     mov eax, 5
-    mov ebx, 12
+    mov ebx, 25
     call selectCell, eax, ebx
-    mov eax, 50
-    mov ebx, 56
+    mov eax, 5
+    mov ebx, 60
+    call selectCell, eax, ebx
+    mov eax, 5
+    mov ebx, 5
+    call selectCell, eax, ebx
+    mov eax, 5
+    mov ebx, 25
     call selectCell, eax, ebx
     
     @@animation_loop:
