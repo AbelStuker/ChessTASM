@@ -359,7 +359,7 @@ proc updatePiecePosition
     shl ebx, 3          ; Shift 3 y coordinate bits 3 positions to the left to make room for the 3 x coordinate bits.
     or ebx, edx         ; Combine the x and the y coordinate bits.
     or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
-    mov [edi], eax
+    mov [word ptr edi], ax
     ret
 endp updatePiecePosition
 
@@ -673,10 +673,10 @@ proc selectCell
         mov [selectedCellY], 8
 
     @@destinationSelection:
-        call selectedPiece      ; Returns 1 in eax if a piece is selected, 0 if not. If a piece is selected, we check if the piece can be moved to the destination.
+        call selectedPiece      ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
         cmp eax, 0              ; If no piece is selected, we do nothing.
         je @@return
-        mov edx, eax
+        mov edx, eax            ; If a piece is selected, it will be moved to the destination cell.
         pop ebx
         pop eax
         call updatePiecePosition, edx, eax, ebx
