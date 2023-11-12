@@ -337,7 +337,7 @@ endp getSmallestValue
 
 proc isPathEmpty
     arg @@startX:dword, @@endX:dword, @@startY:dword, @@endY:dword
-    local @@startVal:dword, @@endVal:dword
+    local @@pathType:dword
     uses ecx, edx, ebx
 
     mov edx, [@@startY]
@@ -346,56 +346,114 @@ proc isPathEmpty
     mov edx, [@@startX]
     cmp edx, [@@endX]
     je @@prepareVertical
+    call getAbsoluteDifference, [@@startY], [@@endY]
+    mov ebx, eax
+    call getAbsoluteDifference, [@@startX], [@@endX]
+    cmp eax, ebx
+    je @@prepareDiagonal
     jmp @@notEmpty          ; In case the path between the start and end coordinates is neither horizontal nor vertical, we say the path is not empty.
 
+
     @@prepareHorizontal:
-        mov eax, [@@startX]
-        mov [@@startVal], eax
-        mov eax, [@@endX]
-        mov [@@endVal], eax
+        mov [@@pathType], 0
+        call getAbsoluteDifference, [@@startX], [@@endX]
+        mov ecx, eax
+        call getSmallestValue, [@@startY], [@@endY]
+        mov ebx, eax
+        call getSmallestValue, [@@startX], [@@endX]
+        inc eax             ; Since the first cell contains the piece we are trying to move, we must exclude this cell from the check because it will never be empty.
         jmp @@check
     @@prepareVertical:
-        mov eax, [@@startY]
-        mov [@@startVal], eax
-        mov eax, [@@endY]
-        mov [@@endVal], eax
+        mov [@@pathType], 1
+        call getAbsoluteDifference, [@@startY], [@@endY]
+        mov ecx, eax
+        call getSmallestValue, [@@startY], [@@endY]
+        mov ebx, eax
+        call getSmallestValue, [@@startX], [@@endX]
+        inc ebx
+        jmp @@check
+    @@prepareDiagonal:
+        call getAbsoluteDifference, [@@startX], [@@endX]
+        mov ecx, eax
+        mov eax, [@@startX]
+        cmp eax, [@@endX]
+        jl @@diagonalFromLeft
+        jmp @@diagonalFromRight
+        @@diagonalFromLeft:
+            mov [@@pathType], 2
+            inc eax
+            jmp @@checkDiagonalVBegin
+        @@diagonalFromRight:
+            dec eax
+            mov [@@pathType], 4
+        @@checkDiagonalVBegin:
+            mov ebx, [@@startY]
+            cmp ebx, [@@endY]
+            jge @@diagonalFromBottom
+        @@diagonalFromTop:
+            inc ebx
+            jmp @@check
+        @@diagonalFromBottom:
+            dec ebx
+            add [@@pathType], 1
+            jmp @@check
 
     @@check:
         
-        ; Move the difference between the start and end coordinate to ecx.
-        call getAbsoluteDifference, [@@startVal], [@@endVal]
-        mov ecx, eax
-        dec ecx     ; Since we don't want to check the end coordinate, we substract 1 from ecx.
+        dec ecx     ; Since we don't want to check the end coordinate, we substract 1 from ecx (ecx contains the amount of cells between the start and end coordinate).
                     ;       The destination cell can not contain an own piece, since it would be selected instead of the cell as destination.
                     ;       The destination cell can be a piece of the other player, in which case the move is possible and that piece will die.
 
-        ; Move the smallest x-value to edx.
-        call getSmallestValue, [@@startVal], [@@endVal]
-        mov edx, eax
-        inc edx     ; Since the first cell contains the piece we are trying to move, we must exclude this cell from the check because it will never be empty.
-
+       
         jcxz @@entirePathEmpty      ; If the destination cell is next to the piece we are trying to move, the path in between is non-existing and therefore always empty.
 
-        ; Looping over the path from the smallest x-value to the largest x-value.
+        ; Looping over the path.
         ; When a piece is found, the path is not empty.
         @@testEmpty:
-            ; To know which x- and y-values must be used, we must check (again) how the path is traversed (horzontally or vertically).
-            mov ebx, [@@startY]
-            cmp ebx, [@@endY]
-            je @@testHorizontal
-            ; In case of vertical traversal, the edx contains the y-value.
-            call findPieceAddress, [@@startX], edx
-            jmp @@continue
-            ; In case of horizontal traversal, the edx contains the x-value.
-            @@testHorizontal:
-                call findPieceAddress, edx, [@@startY] 
-            @@continue:
-                cmp eax, 0      ; If the cell is empty, eax is set to 0.
-                je @@empty
-                jmp @@notEmpty
+            push eax
+            call findPieceAddress, eax, ebx
+            cmp eax, 0      ; If the cell is empty, eax is set to 0.
+            pop eax
+            je @@empty
+            jmp @@notEmpty
 
             @@empty:
-                inc edx
+                mov edx, [@@pathType]
+                cmp edx, 0      ; If the path is horizontal
+                je @@incX       ;   we increment the x-coordinate.
+                cmp edx, 1      ; If the path is vertical
+                je @@incY       ;   we increment the y-coordinate.
+                cmp edx, 2      ; If the path is diagonal from top left to bottom right
+                je @@incXY      ;   we increment both the x- and y-coordinate.
+                cmp edx, 3      ; If the path is diagonal from bottom left to top right
+                je @@incXdecY   ;   we increment the x-coordinate and decrement the y-coordinate.
+                cmp edx, 4      ; If the path is diagonal from top right to bottom left
+                je @@decXincY   ;   we decrement the x-coordinate and increment the y-coordinate.
+                cmp edx, 5      ; If the path is diagonal from bottom right to top left
+                je @@decXY      ;   we decrement both the x- and y-coordinate.
+            
+            @@incX:
+                inc eax
+                jmp @@continue
+            @@incY:
+                inc ebx
+                jmp @@continue
+            @@incXY:
+                inc eax
+                inc ebx
+                jmp @@continue
+            @@incXdecY:
+                inc eax
+                dec ebx
+                jmp @@continue
+            @@decXincY:
+                dec eax
+                inc ebx
+                jmp @@continue
+            @@decXY:
+                dec eax
+                dec ebx
+            @@continue:
                 loop @@testEmpty
                 jmp @@entirePathEmpty
     
@@ -531,6 +589,13 @@ proc calculatePossibleMove
                 je @@possible
                 jmp @@notPossible
         @@typeBishop:
+            call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+            mov ebx, eax
+            call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+            cmp eax, ebx
+            jne @@notPossible
+            jmp @@testPathEmpty
+            
         @@typeQueen:
         @@typeKing:
             jmp @@possible
@@ -567,10 +632,18 @@ proc updatePiecePosition
     or ebx, edx         ; Combine the x and the y coordinate bits.
     or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
     mov [word ptr edi], ax
-
+    call changeCurrentTurn
     @@return:
         ret
 endp updatePiecePosition
+
+proc changeCurrentTurn
+    uses eax
+    mov al, [currentTurn]
+    xor al, 00000001b
+    mov [currentTurn], al
+    ret
+endp changeCurrentTurn
 
 proc coordinatesFromEncPiece
     arg @@encodedPiece:dword
@@ -957,18 +1030,18 @@ PROC main
     call transferFrame
 
     ; TEST CASE
-    mov eax, 5
-    mov ebx, 25
+    mov eax, (24 * 2) + 5
+    mov ebx, (24 * 6) + 5
     call selectCell, eax, ebx
-    mov eax, 5
-    mov ebx, 60
+    mov eax, (24 * 4) + 5
+    mov ebx, (24 * 4) + 5
     call selectCell, eax, ebx
-    mov eax, 5
-    mov ebx, 5
-    call selectCell, eax, ebx
-    mov eax, 5
-    mov ebx, 25
-    call selectCell, eax, ebx
+    ;mov eax, 5
+    ;mov ebx, 5
+    ;call selectCell, eax, ebx
+    ;mov eax, 5
+    ;mov ebx, 25
+    ;call selectCell, eax, ebx
     
     @@animation_loop:
 
@@ -1062,7 +1135,7 @@ DATASEG
     selectedCellX db 8
     selectedCellY db 8
 
-    currentTurn db 0
+    currentTurn db 1
     
 
 ; -------------------------------------------------------------------
