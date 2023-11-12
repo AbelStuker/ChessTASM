@@ -306,51 +306,133 @@ proc drawPieces
         add edi, 2
         pop ecx
         loop @@drawLoop
-
-    ; white pieces
-    ;call drawPiece, offset pionArray, 0, 1, 0Fh
-    ;call drawPiece, offset pionArray, 1, 1, 0Fh
-    ;call drawPiece, offset pionArray, 2, 1, 0Fh
-    ;call drawPiece, offset pionArray, 3, 1, 0Fh
-    ;call drawPiece, offset pionArray, 4, 1, 0Fh
-    ;call drawPiece, offset pionArray, 5, 1, 0Fh
-    ;call drawPiece, offset pionArray, 6, 1, 0Fh
-    ;call drawPiece, offset pionArray, 7, 1, 0Fh
-    ;call drawPiece, offset rookArray, 0, 0, 0Fh
-    ;call drawPiece, offset rookArray, 7, 0, 0Fh
-    ;call drawPiece, offset knightArray, 1, 0, 0Fh
-    ;call drawPiece, offset knightArray, 6, 0, 0Fh
-    ;call drawPiece, offset bishopArray, 2, 0, 0Fh
-    ;call drawPiece, offset bishopArray, 5, 0, 0Fh
-    ;call drawPiece, offset queenArray, 3, 0, 0Fh
-    ;call drawPiece, offset kingArray, 4, 0, 0Fh
-
-    ; black pieces
-    ;call drawPiece, offset pionArray, 0, 6, 00h
-    ;call drawPiece, offset pionArray, 1, 6, 00h
-    ;call drawPiece, offset pionArray, 2, 6, 00h
-    ;call drawPiece, offset pionArray, 3, 6, 00h
-    ;call drawPiece, offset pionArray, 4, 6, 00h
-    ;call drawPiece, offset pionArray, 5, 6, 00h
-    ;call drawPiece, offset pionArray, 6, 6, 00h
-    ;call drawPiece, offset pionArray, 7, 6, 00h
-    ;call drawPiece, offset rookArray, 0, 7, 00h
-    ;call drawPiece, offset rookArray, 7, 7, 00h
-    ;call drawPiece, offset knightArray, 1, 7, 00h
-    ;call drawPiece, offset knightArray, 6, 7, 00h
-    ;call drawPiece, offset bishopArray, 2, 7, 00h
-    ;call drawPiece, offset bishopArray, 5, 7, 00h
-    ;call drawPiece, offset queenArray, 3, 7, 00h
-    ;call drawPiece, offset kingArray, 4, 7, 00h
-
     ret
 endp drawPieces
+
+proc getAbsoluteDifference
+    arg @@a:dword, @@b:dword
+    uses ebx
+    mov eax, [@@a]
+    mov ebx, [@@b]
+    cmp eax, ebx
+    jl @@switch
+    sub eax, ebx
+    jmp @@return
+    @@switch:
+        sub ebx, eax
+        mov eax, ebx
+    @@return:
+        ret
+endp getAbsoluteDifference
+
+proc calculatePossibleMove
+    arg @@encodedPiece:dword, @@destinationX:dword, @@destinationY:dword
+    local @@player:byte, @@type:byte, @@pieceX:dword, @@pieceY:dword, @@destinationOccupation:dword
+    uses ebx
+
+    call coordinatesFromEncPiece, [@@encodedPiece]
+    mov [@@pieceX], eax
+    mov [@@pieceY], ebx
+    call typeFromEncPiece, [@@encodedPiece]
+    mov [@@type], al
+    call playerFromEncPiece, [@@encodedPiece]
+    mov [@@player], al
+
+    ; Check if the destination cell is occupied by another piece. If this piece is from the same player, the move is not possible.
+    ; If the piece is from the other player, it must be checked wheter killing the piece is possible.
+    call findPieceAddress, [@@destinationX], [@@destinationY]
+    mov [@@destinationOccupation], eax
+    cmp eax, 0
+    je @@checkMove
+    call playerFromEncPiece, [dword ptr eax]
+    cmp al, [currentTurn]
+    je @@notPossible
+
+    @@checkMove:
+        mov al, [@@type]
+        cmp al, 7
+        jle @@typePawn
+        cmp al, 9
+        jle @@typeRook
+        cmp al, 11
+        jle @@typeKnight
+        cmp al, 13
+        jle @@typeBishop
+        cmp al, 14
+        je @@typeQueen
+        cmp al, 15
+        je @@typeKing
+
+        @@typePawn:
+            cmp [@@player], 1
+            je @@blackPawn
+            jmp @@whitePawn
+
+            @@blackPawn:
+                mov ebx, [@@pieceY]
+                sub ebx, [@@destinationY]
+                jmp @@pawnTestY
+            @@whitePawn:
+                mov ebx, [@@destinationY]
+                sub ebx, [@@pieceY]
+            @@pawnTestY:
+                cmp ebx, 1
+                je @@pawnTestX
+                cmp ebx, 2
+                je @@pawnTestFirstMove
+                jmp @@notPossible
+            @@pawnTestFirstMove:
+                call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+                cmp eax, 0
+                jne @@notPossible
+
+                cmp [@@player], 1
+                je @@pawnTestFirstMoveBlack
+                jmp @@pawnTestFirstMoveWhite
+                @@pawnTestFirstMoveBlack:
+                    cmp [@@pieceY], 6
+                    je @@possible
+                    jmp @@notPossible
+                @@pawnTestFirstMoveWhite:
+                    cmp [@@pieceY], 1
+                    je @@possible
+                    jmp @@notPossible
+            @@pawnTestX:
+                call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+                cmp eax, 0
+                je @@possible
+                cmp eax, 1
+                je @@testPawnDiagonal
+                jmp @@notPossible
+            @@testPawnDiagonal:
+                cmp [@@destinationOccupation], 0        ; If the diagonal cell is not occupied, the move is not possible.
+                je @@notPossible
+                jmp @@possible                          ; If the diagonal cell is occupied, it must be occupied by the other player (because we already checked if it was occupied by the same player).
+
+        @@typeRook:
+        @@typeKnight:
+        @@typeBishop:
+        @@typeQueen:
+        @@typeKing:
+            jmp @@possible
+        
+    @@possible:
+        mov eax, [@@encodedPiece]
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp calculatePossibleMove
 
 proc updatePiecePosition
     arg @@pieceAddress:dword, @@x:dword, @@y:dword
     uses eax, ebx, edx, edi
     mov edi, [@@pieceAddress]
     movzx eax, [word ptr edi]
+    call calculatePossibleMove, eax, [@@x], [@@y]
+    cmp eax, 0
+    je @@return
     and eax, 11111000000b
     mov ebx, [@@x]
     mov edx, [@@y]
@@ -360,7 +442,9 @@ proc updatePiecePosition
     or ebx, edx         ; Combine the x and the y coordinate bits.
     or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
     mov [word ptr edi], ax
-    ret
+
+    @@return:
+        ret
 endp updatePiecePosition
 
 proc coordinatesFromEncPiece
@@ -447,7 +531,7 @@ endp pieceArrayFromType
 
 proc findPieceAddress
     arg @@x:dword, @@y:dword
-    uses edi, ecx
+    uses edi, ecx, ebx
     xor eax, eax
     xor ebx, ebx
     lea edi, [word ptr pieces]
@@ -657,9 +741,8 @@ proc selectCell
     je @@destinationSelection
     mov eax, [eax]
     call playerFromEncPiece, eax             ; Returns the player (0 or 1) in al
-    movzx ebx, [currentTurn]
-    cmp eax, ebx
-    jne @@unselect
+    cmp al, [currentTurn]
+    jne @@destinationSelection
     pop ebx
     pop eax
     mov [selectedCellX], al
