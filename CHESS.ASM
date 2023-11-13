@@ -513,7 +513,7 @@ proc checkPawnMove
     @@pawnTestX:
         call getAbsoluteDifference, [@@pieceX], [@@destinationX]
         cmp eax, 0
-        je @@possible
+        je @@testPawnVertical
         cmp eax, 1
         je @@testPawnDiagonal
         jmp @@notPossible
@@ -521,7 +521,10 @@ proc checkPawnMove
         cmp [@@destinationOccupation], 0        ; If the diagonal cell is not occupied, the move is not possible.
         je @@notPossible
         jmp @@possible                          ; If the diagonal cell is occupied, it must be occupied by the other player (because we already checked if it was occupied by the same player).
-
+    @@testPawnVertical:
+        cmp [@@destinationOccupation], 0        ; If the vertical cell is occupied, the move is not possible.
+        je @@possible
+        jmp @@notPossible
     @@possible:
         mov eax, 1
         jmp @@return
