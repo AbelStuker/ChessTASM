@@ -292,6 +292,11 @@ proc drawPieces
         push ecx
         movzx eax, [word ptr edi]
         push eax
+        call aliveFromEncPiece, eax
+        cmp eax, 0
+        pop eax
+        je @@continue
+        push eax
         call typeFromEncPiece, eax
         call pieceArrayFromType, eax
         mov edx, eax
@@ -303,9 +308,11 @@ proc drawPieces
         pop eax
         call coordinatesFromEncPiece, eax
         call drawPiece, edx, eax, ebx, ecx
-        add edi, 2
-        pop ecx
-        loop @@drawLoop
+
+        @@continue:
+            add edi, 2
+            pop ecx
+            loop @@drawLoop
     ret
 endp drawPieces
 
@@ -729,27 +736,47 @@ proc calculatePossibleMove
         ret
 endp calculatePossibleMove
 
-proc updatePiecePosition
-    arg @@pieceAddress:dword, @@x:dword, @@y:dword
+proc killPiece
+    arg @@pieceAddress:dword
+    uses eax, edi
+    mov edi, [@@pieceAddress]
+    movzx eax, [word ptr edi]
+    and eax, 011111111111b
+    mov [word ptr edi], ax
+    ret
+endp killPiece
+
+proc movePiece
+    arg @@pieceAddress:dword, @@x:dword, @@y:dword, @@destPieceAddress:dword
     uses eax, ebx, edx, edi
     mov edi, [@@pieceAddress]
     movzx eax, [word ptr edi]
     call calculatePossibleMove, eax, [@@x], [@@y]
     cmp eax, 0
     je @@return
-    and eax, 11111000000b
-    mov ebx, [@@x]
-    mov edx, [@@y]
-    and ebx, 111b       ; Just to be sure that the x-coordinate is not larger than 7.
-    and edx, 111b       ;
-    shl ebx, 3          ; Shift 3 y coordinate bits 3 positions to the left to make room for the 3 x coordinate bits.
-    or ebx, edx         ; Combine the x and the y coordinate bits.
-    or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
-    mov [word ptr edi], ax
-    call changeCurrentTurn
+
+    ; If the destination contains a piece, we must remove it (since it is killed).
+    cmp [@@destPieceAddress], 0
+    je @@move
+    call killPiece, [@@destPieceAddress]
+
+    @@move:
+        ; Updating the position of the piece.
+        and eax, 111111000000b
+        mov ebx, [@@x]
+        mov edx, [@@y]
+        and ebx, 111b       ; Just to be sure that the x-coordinate is not larger than 7.
+        and edx, 111b       ;
+        shl ebx, 3          ; Shift 3 y coordinate bits 3 positions to the left to make room for the 3 x coordinate bits.
+        or ebx, edx         ; Combine the x and the y coordinate bits.
+        or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
+        mov [word ptr edi], ax
+
+        ; Changing the turn of the player.
+        call changeCurrentTurn
     @@return:
         ret
-endp updatePiecePosition
+endp movePiece
 
 proc changeCurrentTurn
     uses eax
@@ -758,6 +785,15 @@ proc changeCurrentTurn
     mov [currentTurn], al
     ret
 endp changeCurrentTurn
+
+proc aliveFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    mov eax, [@@encodedPiece]
+    and eax, 100000000000b
+    shr eax, 11
+    ret
+endp aliveFromEncPiece
 
 proc coordinatesFromEncPiece
     arg @@encodedPiece:dword
@@ -1044,17 +1080,19 @@ endp selectedPiece
 
 proc selectCell
     arg @@xPixel:dword , @@yPixel:dword
-    uses eax, ebx, edx
+    uses eax, ebx, edx, ecx
     call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; returns the grid x-coordinate in eax and the grid y-coordinate in ebx
     push eax
     push ebx
-    call findPieceAddress, eax, ebx         ; Returns the address of the piece in eax. If no piece is found, eax is set to 0.
+    call findPieceAddress, eax, ebx         ; Returns the address of the piece at the destination cell in eax. If no piece is found, eax is set to 0.
+    push eax                                ; We push this onto the stack since we may need it later in movePiece to remove the piece.
     cmp eax, 0
     je @@destinationSelection
     mov eax, [eax]
     call playerFromEncPiece, eax             ; Returns the player (0 or 1) in al
     cmp al, [currentTurn]
     jne @@destinationSelection
+    pop ebx             ; This is the address of the piece that needs to be selected. We don't need it here so we just pop it from the stack.wma
     pop ebx
     pop eax
     mov [selectedCellX], al
@@ -1062,19 +1100,23 @@ proc selectCell
     jmp @@return
 
     @@unselect:
-        pop ebx
+        ; Clearing the stack (we don't need the values).
+        pop eax
+        pop eax
         pop eax
         mov [selectedCellX], 8
         mov [selectedCellY], 8
+        jmp @@return
 
     @@destinationSelection:
         call selectedPiece      ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
         cmp eax, 0              ; If no piece is selected, we do nothing.
         je @@return
         mov edx, eax            ; If a piece is selected, it will be moved to the destination cell.
-        pop ebx
-        pop eax
-        call updatePiecePosition, edx, eax, ebx
+        pop ecx                 ; Popping from stack:   ecx = address of destination piece (can be 0 if no piece is present)
+        pop ebx                 ;                       ebx = y-coordinate of the source piece
+        pop eax                 ;                       eax = x-coorindate of the source piece
+        call movePiece, edx, eax, ebx, ecx
 
     @@return:
         call drawBoard
@@ -1147,7 +1189,7 @@ PROC main
     mov eax, (24 * 2) + 5
     mov ebx, (24 * 6) + 5
     call selectCell, eax, ebx
-    mov eax, (24 * 4) + 5
+    mov eax, (24 * 2) + 5
     mov ebx, (24 * 4) + 5
     call selectCell, eax, ebx
     ;mov eax, 5
@@ -1209,10 +1251,10 @@ DATASEG
     ; (3):  X-COORDINATE
     ; (4):  Y-COORDINATE
     
-    pieces  dw 01000000000b, 01010001000b, 01100010000b, 01110011000b, 01111100000b, 01101101000b, 01011110000b, 01001111000b
-            dw 00000000001b, 00001001001b, 00010010001b, 00011011001b, 00100100001b, 00101101001b, 00110110001b, 00111111001b
-            dw 11000000111b, 11010001111b, 11100010111b, 11110011111b, 11111100111b, 11101101111b, 11011110111b, 11001111111b
-            dw 10000000110b, 10001001110b, 10010010110b, 10011011110b, 10100100110b, 10101101110b, 10110110110b, 10111111110b
+    pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
+            dw 100000000001b, 100001001001b, 100010010001b, 100011011001b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
+            dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
+            dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
 
     framebuffer db 64000 dup (0)
     selectedcell dd 1
