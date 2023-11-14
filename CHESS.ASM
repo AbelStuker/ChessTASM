@@ -18,7 +18,6 @@ INCLUDE "MOUSE.INC"
 ; -------------------------------------------------------------------
 CODESEG
 
-
 proc setupVideo
 	USES eax
 	mov ax,13h
@@ -35,64 +34,6 @@ proc unsetupVideo
 	ret
 endp unsetupVideo
 ;-----------------------------------------------------------------------?
-
-
-proc displayString
-    ARG @@row:DWORD, @@column:DWORD, @@offset:DWORD
-    USES EAX, EBX, EDX
-    MOV EDX, [@@row]    ; row in EDX
-    MOV EBX, [@@column] ; column in EBX
-    MOV AH, 02H
-    SHL EDX, 08H
-    MOV DL, BL
-    MOV BH, 0
-    INT 10H
-    ; set cursor position
-    ; row in DH (00H is top)
-    ; column in DL (00H is left)
-    ; page number in BH
-    ; raise interrupt
-    ; write string to standard output
-    MOV AH, 09H
-    MOV EDX, [@@offset] ; offset of ’$’-terminated string in EDX
-    INT 21H             ; raise interrupt
-    RET
-endp displayString
-
-
-
-proc drawHorizontalLine
-    uses eax, edx, ecx
-    arg @@line:DWORD
-    ; feature suggestion: line width
-    xor ecx, ecx    ; clear ecx value
-    mov eax, SCREENWIDTH
-    mul [@@line]
-    mov ecx, SCREENWIDTH
-    @@drawHLine:
-        mov [framebuffer + eax + ecx - 1], 0Fh
-        loop @@drawHLine
-    ret
-endp drawHorizontalLine
-    
-proc drawVerticalLine
-    uses ebx, edx, eax
-    arg @@vline:DWORD
-    ; feature suggestion: line width
-    xor ecx, ecx    ; clear ecx value
-    mov ebx, [@@vline]
-    mov eax, SCREENHEIGHT-1
-    mov edx, SCREENWIDTH
-    mul edx
-    @@drawVLine:
-        mov [framebuffer + eax + ebx - 1], 0Fh
-        sub eax, SCREENWIDTH
-        cmp eax, 0
-        jge @@drawVLine
-    ret
-
-endp drawVerticalLine
-        
 
 proc drawBoard
     uses edx, ecx
@@ -120,9 +61,15 @@ proc drawCell
     uses eax, edx, ecx
     arg @@x:dword, @@y:dword
 
+    ; Calculate the offset of the top-left corner pixel of the cell.
+    ; The offset is calculated by multiplying the y-coordinate with the celldimension to obtain the pixel y-coordinate.
+    ; Then, the pixel y-coordinate is multiplied with the screenwidth to obtain the offset of the first pixel of the line containing the top-left corner of the cell.
+    ; After that, the x-coordinate is multiplied with the celldimension to obtain the pixel x-coordinate.
+    ; Lastly, the pixel x-corodinate is added to the offset of the first pixel of the line.
+    ; We now have the offset of the top-left corner pixel of the cell.
     mov eax, [@@y]
     mov edx, CELLDIMENSION
-    mul edx
+    mul edx 
     mov edx, SCREENWIDTH
     mul edx                 
     mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
@@ -131,7 +78,7 @@ proc drawCell
     mul edx                 ; eax contains the x-coordinate of the top-left corner of the cell
     add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
     
-    call determineCellColor, [@@x], [@@y]     ; color in al
+    call determineCellColor, [@@x], [@@y]     ; The color of the cell is obtained in eax.
 
     xor edx, edx    
     @@verticalLoop:
@@ -474,6 +421,7 @@ proc isPathEmpty
         ret
 endp isPathEmpty
 
+;; Procedures to check moves of individual piece types.
 proc checkPawnMove
     arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword, @@destinationOccupation:dword, @@player:byte
     uses ebx
@@ -655,6 +603,7 @@ proc checkKingMove
         ret
 endp checkKingMove
 
+;;
 proc calculatePossibleMove
     arg @@encodedPiece:dword, @@destinationX:dword, @@destinationY:dword
     local @@player:dword, @@type:byte, @@pieceX:dword, @@pieceY:dword, @@destinationOccupation:dword
@@ -781,6 +730,7 @@ proc movePiece
         ret
 endp movePiece
 
+;;
 proc changeCurrentTurn
     uses eax
     mov al, [currentTurn]
@@ -789,11 +739,12 @@ proc changeCurrentTurn
     ret
 endp changeCurrentTurn
 
+;; Procedures to obtain properties based on the encoded piece.
 proc aliveFromEncPiece
     arg @@encodedPiece:dword
     xor eax, eax
     mov eax, [@@encodedPiece]
-    and eax, 100000000000b
+    ;and eax, 10000000000b
     shr eax, 11
     ret
 endp aliveFromEncPiece
@@ -1084,32 +1035,36 @@ endp selectedPiece
 proc selectCell
     arg @@xPixel:dword , @@yPixel:dword
     uses eax, ebx, edx, ecx
-    call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; returns the grid x-coordinate in eax and the grid y-coordinate in ebx
+    call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; Returns the grid x-coordinate in eax and the grid y-coordinate in ebx
     push eax
     push ebx
-    call findPieceAddress, eax, ebx         ; Returns the address of the piece at the destination cell in eax. If no piece is found, eax is set to 0.
-    push eax                                ; We push this onto the stack since we may need it later in movePiece to remove the piece.
+    ; If the destination cell does not contain a piece, we may want the currently selected piece (if any) to move to this cell.
+    call findPieceAddress, eax, ebx     ; Returns the address of the piece at the destination cell in eax. If no piece is found, eax is set to 0.
+    push eax                            ; We push this onto the stack since we may need it later in movePiece to remove the piece.
     cmp eax, 0
     je @@destinationSelection
+    ; If the destination cell contains a piece, we may want to select this piece if it belongs to the current player.
+    ; If it belongs to the other player, we try to move the currently selected piece (if any) to this cell.
     mov eax, [eax]
-    call playerFromEncPiece, eax             ; Returns the player (0 or 1) in al
-    cmp al, [currentTurn]
-    jne @@destinationSelection
-    pop ebx             ; This is the address of the piece that needs to be selected. We don't need it here so we just pop it from the stack.wma
+    call playerFromEncPiece, eax        ; Returns the player (0 or 1) in al
+    cmp al, [currentTurn]               ; If the piece in the destination cell ...
+    jne @@destinationSelection          ;   ... belongs to the other player, we try to move the currently selected piece (if any) to this cell.
+    pop ebx ; thrown away 
     pop ebx
     pop eax
-    mov [selectedCellX], al
+    mov [selectedCellX], al             ;   ... belongs to the current player, we select this piece.
     mov [selectedCellY], bl
     jmp @@return
 
+    ; ----- currently not used -----
     @@unselect:
-        ; Clearing the stack (we don't need the values).
-        pop eax
+        pop eax ; thrown away
         pop eax
         pop eax
         mov [selectedCellX], 8
         mov [selectedCellY], 8
         jmp @@return
+    ; ------------------------------
 
     @@destinationSelection:
         call selectedPiece      ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
@@ -1143,9 +1098,10 @@ endp selectCell
 ; ----------------------------------------------------------------------------
 PROC mouseHandler
     USES eax, ebx, ecx, edx
+
     ; We update the lastMouseX and lastMouseY variables. When the frame buffer is drawn again, these values will be used.
     ; The x-coordinate is stored in cx, and the y-coordinate is stored in dx.
-    ; Since the lastMouseX and lastMouseY store dwords, we make sure the cx and dx registers are zero-extended to 32 bits.
+    ; Since the lastMouseX and lastMouseY store dwords, we make sure the cx and dx registers are zero-extended to 32 bits using movzx.
     movzx ecx, cx
     movzx edx, dx
     mov [lastMouseX], ecx
@@ -1203,16 +1159,8 @@ PROC main
     ;call selectCell, eax, ebx
     
     @@animation_loop:
-
-        ; TODO frame must be cleared if necessary
-        ; TODO something with VBlank
-        ;call drawBoard
-        ;call drawPieces
         
-        ;call transferFrame
-
-        
-        ; check for termination by ESC key
+        ; If the ESC key is pressed, the program is terminated.
         xor al, al
         mov	ah, 01h
         int	16h
@@ -1280,8 +1228,8 @@ DATASEG
     queenArray dd PIECE_SIZE dup (?)
     kingArray dd PIECE_SIZE dup (?)
 
-    whiteColor db 35h
-    blackColor db 37h
+    whiteColor db 42h
+    blackColor db 06h
 
     whitePieceColor db 0Fh
     blackPieceColor db 00h
