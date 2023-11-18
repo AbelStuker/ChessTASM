@@ -19,7 +19,7 @@ INCLUDE "MOUSE.INC"
 CODESEG
 
 proc setupVideo
-	USES eax
+	uses eax
 	mov ax,13h
 	
 	int 10h
@@ -27,7 +27,7 @@ proc setupVideo
 endp setupVideo
 ;-----------------------------------------------------------------------?
 proc unsetupVideo
-	USES eax
+	uses eax
 	mov ax,03h
 	
 	int 10h
@@ -131,7 +131,7 @@ endp determineCellColor
 
 
 proc transferFrame
-	USES eax, ecx, edi, esi
+	uses eax, ecx, edi, esi
 
     ; We must save the color of the pixel at the mouse position, because it will be overwritten by the mouse pointer.
     ; We don't want the framebuffer to contain the path the mouse pointer has taken, so we will replace the mouse pointer
@@ -155,7 +155,7 @@ endp transferFrame
 
 ; Terminate the program.
 proc terminateProcess
-	USES eax
+	uses eax
 	call unsetupVideo
 	mov	ax,04C00h
 	int 21h
@@ -1097,7 +1097,7 @@ endp selectCell
 ; ES = DATASEG
 ; ----------------------------------------------------------------------------
 proc mouseHandler
-    USES eax, ebx, ecx, edx
+    uses eax, ebx, ecx, edx
 
     ; We update the lastMouseX and lastMouseY variables. When the frame buffer is drawn again, these values will be used.
     ; The x-coordinate is stored in cx, and the y-coordinate is stored in dx.

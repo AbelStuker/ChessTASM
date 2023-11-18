@@ -70,7 +70,7 @@ CODESEG
 ;   EAX     1 if mouse available
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 proc mouse_present
-    USES    ebx
+    uses    ebx
 
     mov     eax, 0
     int     33h
@@ -122,8 +122,8 @@ endp mouse_internal_handler
 ;   nothing
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 proc mouse_install
-    ARG     @@custom_handler
-    USES    eax, ecx, edx, es
+    arg     @@custom_handler
+    uses    eax, ecx, edx, es
 
     call    mouse_present
     cmp     eax, 1
@@ -160,7 +160,7 @@ endp mouse_install
 ;   nothing
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 proc mouse_uninstall
-    USES    eax, ecx, edx
+    uses    eax, ecx, edx
 
     mov     eax, 0ch
     mov     ecx, 0
