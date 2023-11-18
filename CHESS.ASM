@@ -1096,7 +1096,7 @@ endp selectCell
 ; DS = DATASEG
 ; ES = DATASEG
 ; ----------------------------------------------------------------------------
-PROC mouseHandler
+proc mouseHandler
     USES eax, ebx, ecx, edx
 
     ; We update the lastMouseX and lastMouseY variables. When the frame buffer is drawn again, these values will be used.
@@ -1115,9 +1115,9 @@ PROC mouseHandler
     @@return:
         call transferFrame
         ret
-ENDP mouseHandler
+endp mouseHandler
 
-PROC main
+proc main
 	sti
 	cld
 
@@ -1175,7 +1175,7 @@ PROC main
 
 
 
-ENDP main
+endp main
 
 
 
