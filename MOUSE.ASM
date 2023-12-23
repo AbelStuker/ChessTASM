@@ -69,8 +69,8 @@ CODESEG
 ; RETURNS:
 ;   EAX     1 if mouse available
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-PROC mouse_present
-    USES    ebx
+proc mouse_present
+    uses    ebx
 
     mov     eax, 0
     int     33h
@@ -78,7 +78,7 @@ PROC mouse_present
     and     eax, 1
 
     ret
-ENDP mouse_present
+endp mouse_present
 
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 ; Internal mouse handler.
@@ -91,7 +91,7 @@ ENDP mouse_present
 ; RETURNS:
 ;   nothing
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-PROC mouse_internal_handler NOLANGUAGE
+proc mouse_internal_handler NOLANGUAGE
     push    ds
     push    es
     push    ax
@@ -111,7 +111,7 @@ PROC mouse_internal_handler NOLANGUAGE
 
     ; Internal variable to keep track of DS
     theDS   dw  ?
-ENDP mouse_internal_handler
+endp mouse_internal_handler
 
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 ; Install mouse handler.
@@ -121,9 +121,9 @@ ENDP mouse_internal_handler
 ; RETURNS:
 ;   nothing
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-PROC mouse_install
-    ARG     @@custom_handler
-    USES    eax, ecx, edx, es
+proc mouse_install
+    arg     @@custom_handler
+    uses    eax, ecx, edx, es
 
     call    mouse_present
     cmp     eax, 1
@@ -149,7 +149,7 @@ PROC mouse_install
 
 @@no_mouse:
     ret
-ENDP mouse_install
+endp mouse_install
 
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 ; Uninstall mouse handler.
@@ -159,8 +159,8 @@ ENDP mouse_install
 ; RETURNS:
 ;   nothing
 ;+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-PROC mouse_uninstall
-    USES    eax, ecx, edx
+proc mouse_uninstall
+    uses    eax, ecx, edx
 
     mov     eax, 0ch
     mov     ecx, 0
@@ -168,7 +168,7 @@ PROC mouse_uninstall
     int     33h
 
     ret
-ENDP mouse_uninstall
+endp mouse_uninstall
 
 END
 

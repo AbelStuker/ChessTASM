@@ -18,82 +18,22 @@ INCLUDE "MOUSE.INC"
 ; -------------------------------------------------------------------
 CODESEG
 
-
-PROC setupVideo
-	USES eax
+proc setupVideo
+	uses eax
 	mov ax,13h
 	
 	int 10h
 	ret
-ENDP setupVideo
+endp setupVideo
 ;-----------------------------------------------------------------------?
-PROC unsetupVideo
-	USES eax
+proc unsetupVideo
+	uses eax
 	mov ax,03h
 	
 	int 10h
 	ret
-ENDP unsetupVideo
+endp unsetupVideo
 ;-----------------------------------------------------------------------?
-
-
-
-PROC displayString
-    ARG @@row:DWORD, @@column:DWORD, @@offset:DWORD
-    USES EAX, EBX, EDX
-    MOV EDX, [@@row]    ; row in EDX
-    MOV EBX, [@@column] ; column in EBX
-    MOV AH, 02H
-    SHL EDX, 08H
-    MOV DL, BL
-    MOV BH, 0
-    INT 10H
-    ; set cursor position
-    ; row in DH (00H is top)
-    ; column in DL (00H is left)
-    ; page number in BH
-    ; raise interrupt
-    ; write string to standard output
-    MOV AH, 09H
-    MOV EDX, [@@offset] ; offset of ’$’-terminated string in EDX
-    INT 21H             ; raise interrupt
-    RET
-ENDP displayString
-
-
-
-proc drawHorizontalLine
-    uses eax, edx, ecx
-    arg @@line:DWORD
-    ; feature suggestion: line width
-    xor ecx, ecx    ; clear ecx value
-    mov eax, SCREENWIDTH
-    mul [@@line]
-    mov ecx, SCREENWIDTH
-    @@drawHLine:
-        mov [framebuffer + eax + ecx - 1], 0Fh
-        loop @@drawHLine
-    ret
-endp drawHorizontalLine
-    
-proc drawVerticalLine
-    uses ebx, edx, eax
-    arg @@vline:DWORD
-    ; feature suggestion: line width
-    xor ecx, ecx    ; clear ecx value
-    mov ebx, [@@vline]
-    mov eax, SCREENHEIGHT-1
-    mov edx, SCREENWIDTH
-    mul edx
-    @@drawVLine:
-        mov [framebuffer + eax + ebx - 1], 0Fh
-        sub eax, SCREENWIDTH
-        cmp eax, 0
-        jge @@drawVLine
-    ret
-
-endp drawVerticalLine
-        
 
 proc drawBoard
     uses edx, ecx
@@ -112,26 +52,33 @@ proc drawBoard
         cmp edx, CELLS
         jl @@drawRow
 
+    call drawPieces
     ret
     
 endp drawBoard
 
 proc drawCell
     uses eax, edx, ecx
-    arg @@xPos:DWORD, @@yPos:DWORD
+    arg @@x:dword, @@y:dword
 
-    mov eax, [@@yPos]
+    ; Calculate the offset of the top-left corner pixel of the cell.
+    ; The offset is calculated by multiplying the y-coordinate with the celldimension to obtain the pixel y-coordinate.
+    ; Then, the pixel y-coordinate is multiplied with the screenwidth to obtain the offset of the first pixel of the line containing the top-left corner of the cell.
+    ; After that, the x-coordinate is multiplied with the celldimension to obtain the pixel x-coordinate.
+    ; Lastly, the pixel x-corodinate is added to the offset of the first pixel of the line.
+    ; We now have the offset of the top-left corner pixel of the cell.
+    mov eax, [@@y]
     mov edx, CELLDIMENSION
-    mul edx
+    mul edx 
     mov edx, SCREENWIDTH
     mul edx                 
     mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
-    mov eax, [@@xPos] 
+    mov eax, [@@x] 
     mov edx, CELLDIMENSION
     mul edx                 ; eax contains the x-coordinate of the top-left corner of the cell
     add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
-
-    call determineColor, [@@xPos], [@@yPos]     ; color in al
+    
+    call determineCellColor, [@@x], [@@y]     ; The color of the cell is obtained in eax.
 
     xor edx, edx    
     @@verticalLoop:
@@ -150,15 +97,41 @@ proc drawCell
 
 endp drawCell
 
-proc determineColor
-    arg @@xPos:DWORD, @@yPos:DWORD
-    ; returns eax
+proc determineCellColor
+    arg @@x:dword, @@y:dword
+    uses edx, ecx, ebx
 
-    mov eax, [@@xPos]
-    add eax, [@@yPos]       ; xPos + yPos
-    shr eax, 1              ; test whether sum is even: bitshift 1 position to the right
-    jc @@unevenColor        ; if carry flag (CF) is 1, then the sum was uneven
+    ; When the current cell is a selected cell, the cell must be coloured green.
+    mov eax, [@@x]
+    movzx ecx, [selectedCellX]
+    cmp eax, ecx
+    jne @@checkMouseHover
+    mov eax, [@@y]
+    movzx ecx, [selectedCellY]
+    cmp eax, ecx
+    jne @@checkMouseHover
+    xor eax, eax
+    mov al, 02h
+    jmp @@return
 
+    @@checkMouseHover:
+        ; When the mouse is present in the current cell, the cell must be coloured blue.
+        call gridCoordinateFromPixelCoordinate, [lastMouseX], [lastMouseY]  ; Returns the x- and y-coordinate of the cell in which the mouse is in eax and ebx respectively.
+        mov edx, [@@x]
+        cmp edx, eax
+        jne @@getColor
+        mov edx, [@@y]
+        cmp edx, ebx
+        jne @@getColor
+        xor eax, eax
+        mov al, 03h
+        jmp @@return
+
+    @@getColor:
+        mov eax, [@@x]
+        add eax, [@@y]          ; xPos + yPos
+        shr eax, 1              ; test whether sum is even: bitshift 1 position to the right
+        jc @@unevenColor        ; if carry flag (CF) is 1, then the sum was uneven
     @@evenColor:
         mov al, [whiteColor]
         jmp @@return
@@ -169,11 +142,11 @@ proc determineColor
     @@return:
         ret
 
-endp determineColor
+endp determineCellColor
 
 
-PROC transferFrame
-	USES eax, ecx, edi, esi
+proc transferFrame
+	uses eax, ecx, edi, esi
 
     ; We must save the color of the pixel at the mouse position, because it will be overwritten by the mouse pointer.
     ; We don't want the framebuffer to contain the path the mouse pointer has taken, so we will replace the mouse pointer
@@ -193,16 +166,16 @@ PROC transferFrame
 
 
 	ret
-ENDP transferFrame
+endp transferFrame
 
 ; Terminate the program.
-PROC terminateProcess
-	USES eax
+proc terminateProcess
+	uses eax
 	call unsetupVideo
 	mov	ax,04C00h
 	int 21h
 	ret
-ENDP terminateProcess
+endp terminateProcess
 
 
 
@@ -269,54 +242,652 @@ proc loadPieces
     call loadPiece, offset bishopFileName, offset bishopArray
     call loadPiece, offset queenFileName, offset queenArray
     call loadPiece, offset kingFileName, offset kingArray
-
-    call drawPieces
     ret
 endp loadPieces
 
 proc drawPieces
+    uses eax, ebx, ecx, edx, edi
 
-    ; white pieces
-    call drawPiece, offset pionArray, (CELLDIMENSION * 0), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 1), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 2), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 3), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 4), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 5), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 6), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset pionArray, (CELLDIMENSION * 7), (CELLDIMENSION * 1), 0Fh
-    call drawPiece, offset rookArray, 0, 0, 0Fh
-    call drawPiece, offset rookArray, (CELLDIMENSION * 7), 0, 0Fh
-    call drawPiece, offset knightArray, (CELLDIMENSION * 1), 0, 0Fh
-    call drawPiece, offset knightArray, (CELLDIMENSION * 6), 0, 0Fh
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 2), 0, 0Fh
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 5), 0, 0Fh
-    call drawPiece, offset queenArray, (CELLDIMENSION * 3), 0, 0Fh
-    call drawPiece, offset kingArray, (CELLDIMENSION * 4), 0, 0Fh
+    mov edi, offset pieces
+    mov ecx, PIECEAMOUNT
+    @@drawLoop:
+        push ecx
+        movzx eax, [word ptr edi]
+        push eax
+        call aliveFromEncPiece, eax
+        cmp eax, 0
+        pop eax
+        je @@continue
+        push eax
+        call typeFromEncPiece, eax
+        call pieceArrayFromType, eax
+        mov edx, eax
+        pop eax
+        push eax
+        call playerFromEncPiece, eax
+        call colorFromPlayer, eax
+        mov ecx, eax
+        pop eax
+        call coordinatesFromEncPiece, eax
+        call drawPiece, edx, eax, ebx, ecx
 
-    ; black pieces
-    call drawPiece, offset pionArray, (CELLDIMENSION * 0), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 1), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 2), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 3), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 4), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 5), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 6), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset pionArray, (CELLDIMENSION * 7), (CELLDIMENSION * 6), 00h
-    call drawPiece, offset rookArray, 0, (CELLDIMENSION * 7), 00h
-    call drawPiece, offset rookArray, (CELLDIMENSION * 7), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset knightArray, (CELLDIMENSION * 1), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset knightArray, (CELLDIMENSION * 6), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 2), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset bishopArray, (CELLDIMENSION * 5), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset queenArray, (CELLDIMENSION * 3), (CELLDIMENSION * 7), 00h
-    call drawPiece, offset kingArray, (CELLDIMENSION * 4), (CELLDIMENSION * 7), 00h
+        @@continue:
+            add edi, 2
+            pop ecx
+            loop @@drawLoop
     ret
 endp drawPieces
+
+proc getAbsoluteDifference
+    arg @@a:dword, @@b:dword
+    uses ebx
+    mov eax, [@@a]
+    mov ebx, [@@b]
+    cmp eax, ebx
+    jl @@switch
+    sub eax, ebx
+    jmp @@return
+    @@switch:
+        sub ebx, eax
+        mov eax, ebx
+    @@return:
+        ret
+endp getAbsoluteDifference
+
+proc getSmallestValue
+    arg @@a:dword, @@b:dword
+    mov eax, [@@a]
+    cmp eax, [@@b]
+    jle @@return
+    mov eax, [@@b]
+    @@return:
+        ret
+endp getSmallestValue
+
+proc isPathEmpty
+    arg @@startX:dword, @@endX:dword, @@startY:dword, @@endY:dword
+    local @@pathType:dword
+    uses ecx, edx, ebx
+
+    mov edx, [@@startY]
+    cmp edx, [@@endY]
+    je @@prepareHorizontal
+    mov edx, [@@startX]
+    cmp edx, [@@endX]
+    je @@prepareVertical
+    call getAbsoluteDifference, [@@startY], [@@endY]
+    mov ebx, eax
+    call getAbsoluteDifference, [@@startX], [@@endX]
+    cmp eax, ebx
+    je @@prepareDiagonal
+    jmp @@notEmpty          ; In case the path between the start and end coordinates is neither horizontal nor vertical, we say the path is not empty.
+
+
+    @@prepareHorizontal:
+        mov [@@pathType], 0
+        call getAbsoluteDifference, [@@startX], [@@endX]
+        mov ecx, eax
+        call getSmallestValue, [@@startY], [@@endY]
+        mov ebx, eax
+        call getSmallestValue, [@@startX], [@@endX]
+        inc eax             ; Since the first cell contains the piece we are trying to move, we must exclude this cell from the check because it will never be empty.
+        jmp @@check
+    @@prepareVertical:
+        mov [@@pathType], 1
+        call getAbsoluteDifference, [@@startY], [@@endY]
+        mov ecx, eax
+        call getSmallestValue, [@@startY], [@@endY]
+        mov ebx, eax
+        call getSmallestValue, [@@startX], [@@endX]
+        inc ebx
+        jmp @@check
+    @@prepareDiagonal:
+        call getAbsoluteDifference, [@@startX], [@@endX]
+        mov ecx, eax
+        mov eax, [@@startX]
+        cmp eax, [@@endX]
+        jl @@diagonalFromLeft
+        jmp @@diagonalFromRight
+        @@diagonalFromLeft:
+            mov [@@pathType], 2
+            inc eax
+            jmp @@checkDiagonalVBegin
+        @@diagonalFromRight:
+            dec eax
+            mov [@@pathType], 4
+        @@checkDiagonalVBegin:
+            mov ebx, [@@startY]
+            cmp ebx, [@@endY]
+            jge @@diagonalFromBottom
+        @@diagonalFromTop:
+            inc ebx
+            jmp @@check
+        @@diagonalFromBottom:
+            dec ebx
+            add [@@pathType], 1
+            jmp @@check
+
+    @@check:
+        
+        dec ecx     ; Since we don't want to check the end coordinate, we substract 1 from ecx (ecx contains the amount of cells between the start and end coordinate).
+                    ;       The destination cell can not contain an own piece, since it would be selected instead of the cell as destination.
+                    ;       The destination cell can be a piece of the other player, in which case the move is possible and that piece will die.
+
+       
+        jcxz @@entirePathEmpty      ; If the destination cell is next to the piece we are trying to move, the path in between is non-existing and therefore always empty.
+
+        ; Looping over the path.
+        ; When a piece is found, the path is not empty.
+        @@testEmpty:
+            push eax
+            call findPieceAddress, eax, ebx
+            cmp eax, 0      ; If the cell is empty, eax is set to 0.
+            pop eax
+            je @@empty
+            jmp @@notEmpty
+
+            @@empty:
+                mov edx, [@@pathType]
+                cmp edx, 0      ; If the path is horizontal
+                je @@incX       ;   we increment the x-coordinate.
+                cmp edx, 1      ; If the path is vertical
+                je @@incY       ;   we increment the y-coordinate.
+                cmp edx, 2      ; If the path is diagonal from top left to bottom right
+                je @@incXY      ;   we increment both the x- and y-coordinate.
+                cmp edx, 3      ; If the path is diagonal from bottom left to top right
+                je @@incXdecY   ;   we increment the x-coordinate and decrement the y-coordinate.
+                cmp edx, 4      ; If the path is diagonal from top right to bottom left
+                je @@decXincY   ;   we decrement the x-coordinate and increment the y-coordinate.
+                cmp edx, 5      ; If the path is diagonal from bottom right to top left
+                je @@decXY      ;   we decrement both the x- and y-coordinate.
+            
+            @@incX:
+                inc eax
+                jmp @@continue
+            @@incY:
+                inc ebx
+                jmp @@continue
+            @@incXY:
+                inc eax
+                inc ebx
+                jmp @@continue
+            @@incXdecY:
+                inc eax
+                dec ebx
+                jmp @@continue
+            @@decXincY:
+                dec eax
+                inc ebx
+                jmp @@continue
+            @@decXY:
+                dec eax
+                dec ebx
+            @@continue:
+                loop @@testEmpty
+                jmp @@entirePathEmpty
+    
+
+    @@notEmpty:
+        xor eax, eax
+        jmp @@return
+    @@entirePathEmpty:
+        mov eax, 1
+    @@return:
+        ret
+endp isPathEmpty
+
+;; Procedures to check moves of individual piece types.
+proc checkPawnMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword, @@destinationOccupation:dword, @@player:byte
+    uses ebx
+    cmp [@@player], 1
+    je @@blackPawn
+    jmp @@whitePawn
+
+    @@blackPawn:
+        mov ebx, [@@pieceY]
+        sub ebx, [@@destinationY]
+        jmp @@pawnTestY
+    @@whitePawn:
+        mov ebx, [@@destinationY]
+        sub ebx, [@@pieceY]
+    @@pawnTestY:
+        cmp ebx, 1
+        je @@pawnTestX
+        cmp ebx, 2
+        je @@pawnTestFirstMove
+        jmp @@notPossible
+    @@pawnTestFirstMove:
+        call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+        cmp eax, 0
+        jne @@notPossible
+
+        cmp [@@player], 1
+        je @@pawnTestFirstMoveBlack
+        jmp @@pawnTestFirstMoveWhite
+        @@pawnTestFirstMoveBlack:
+            cmp [@@pieceY], 6
+            je @@possible
+            jmp @@notPossible
+        @@pawnTestFirstMoveWhite:
+            cmp [@@pieceY], 1
+            je @@possible
+            jmp @@notPossible
+    @@pawnTestX:
+        call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+        cmp eax, 0
+        je @@testPawnVertical
+        cmp eax, 1
+        je @@testPawnDiagonal
+        jmp @@notPossible
+    @@testPawnDiagonal:
+        cmp [@@destinationOccupation], 0        ; If the diagonal cell is not occupied, the move is not possible.
+        je @@notPossible
+        jmp @@possible                          ; If the diagonal cell is occupied, it must be occupied by the other player (because we already checked if it was occupied by the same player).
+    @@testPawnVertical:
+        cmp [@@destinationOccupation], 0        ; If the vertical cell is occupied, the move is not possible.
+        je @@possible
+        jmp @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+
+endp checkPawnMove
+
+proc checkRookMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, 0
+    jne @@testRookYsteady
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    cmp eax, 0
+    jne @@testRookXsteady
+    jmp @@notPossible
+    @@testRookYsteady:
+        mov eax, [@@pieceY]
+        cmp eax, [@@destinationY]
+        je @@testPathEmpty
+        jmp @@notPossible
+    @@testRookXsteady:
+        mov eax, [@@pieceX]
+        cmp eax, [@@destinationX]
+        je @@testPathEmpty
+        jmp @@notPossible
+
+    @@testPathEmpty:
+            call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkRookMove
+
+proc checkKnightMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    uses ebx
+
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    mov ebx, eax
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, 1
+    je @@checkYDifference2
+    cmp eax, 2
+    je @@checkYDifference1
+    jmp @@notPossible
+    @@checkYDifference2:
+        cmp ebx, 2
+        je @@possible
+        jmp @@notPossible
+    @@checkYDifference1:
+        cmp ebx, 1
+        je @@possible
+        jmp @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkKnightMove
+
+proc checkBishopMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    uses ebx
+
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    mov ebx, eax
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, ebx
+    jne @@notPossible
+    call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+    cmp eax, 0
+    je @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkBishopMove
+
+proc checkQueenMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    call isPathEmpty, [@@pieceX], [@@destinationX], [@@pieceY], [@@destinationY]
+    cmp eax, 0
+    je @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkQueenMove
+
+proc checkKingMove
+    arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+
+    call getAbsoluteDifference, [@@pieceY], [@@destinationY]
+    cmp eax, 1
+    je @@possible
+    cmp eax, 0
+    jne @@notPossible
+    call getAbsoluteDifference, [@@pieceX], [@@destinationX]
+    cmp eax, 1
+    je @@possible
+    jmp @@notPossible
+    @@possible:
+        mov eax, 1
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp checkKingMove
+
+;;
+proc calculatePossibleMove
+    arg @@encodedPiece:dword, @@destinationX:dword, @@destinationY:dword
+    local @@player:dword, @@type:byte, @@pieceX:dword, @@pieceY:dword, @@destinationOccupation:dword
+    uses ebx
+
+    call coordinatesFromEncPiece, [@@encodedPiece]
+    mov [@@pieceX], eax
+    mov [@@pieceY], ebx
+    call typeFromEncPiece, [@@encodedPiece]
+    mov [@@type], al
+    call playerFromEncPiece, [@@encodedPiece]
+    mov [@@player], eax
+
+    ; Check if the destination cell is occupied by another piece. If this piece is from the same player, the move is not possible.
+    ; If the piece is from the other player, it must be checked wheter killing the piece is possible.
+    call findPieceAddress, [@@destinationX], [@@destinationY]
+    mov [@@destinationOccupation], eax
+    cmp eax, 0
+    je @@checkMove
+    call playerFromEncPiece, [dword ptr eax]
+    cmp al, [currentTurn]   ; TODO remove this check because that other piece would have been selected as piece and not the cell as destination
+    je @@notPossible
+
+    @@checkMove:
+        mov al, [@@type]
+        cmp al, 7
+        jle @@typePawn
+        cmp al, 9
+        jle @@typeRook
+        cmp al, 11
+        jle @@typeKnight
+        cmp al, 13
+        jle @@typeBishop
+        cmp al, 14
+        je @@typeQueen
+        cmp al, 15
+        je @@typeKing
+        jmp @@notPossible
+
+        @@typePawn:
+            call checkPawnMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY], [@@destinationOccupation], [@@player]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+        @@typeRook:
+            call checkRookMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+        @@typeKnight:
+            call checkKnightMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+        @@typeBishop:
+            call checkBishopMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+            
+        @@typeQueen:
+            call checkQueenMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+        @@typeKing:
+            call checkKingMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
+            cmp eax, 0
+            je @@notPossible
+            jmp @@possible
+
+    @@possible:
+        mov eax, [@@encodedPiece]
+        jmp @@return
+    @@notPossible:
+        xor eax, eax
+    @@return:
+        ret
+endp calculatePossibleMove
+
+proc killPiece
+    arg @@pieceAddress:dword
+    uses eax, edi
+    mov edi, [@@pieceAddress]
+    movzx eax, [word ptr edi]
+    and eax, 011111111111b
+    mov [word ptr edi], ax
+    ret
+endp killPiece
+
+proc movePiece
+    arg @@pieceAddress:dword, @@x:dword, @@y:dword, @@destPieceAddress:dword
+    uses eax, ebx, edx, edi
+    mov edi, [@@pieceAddress]
+    movzx eax, [word ptr edi]
+    call calculatePossibleMove, eax, [@@x], [@@y]
+    cmp eax, 0
+    je @@return
+
+    ; If the destination contains a piece, we must remove it (since it is killed).
+    cmp [@@destPieceAddress], 0
+    je @@move
+    call killPiece, [@@destPieceAddress]
+
+    @@move:
+        ; Updating the position of the piece.
+        and eax, 111111000000b
+        mov ebx, [@@x]
+        mov edx, [@@y]
+        and ebx, 111b       ; Just to be sure that the x-coordinate is not larger than 7.
+        and edx, 111b       ;
+        shl ebx, 3          ; Shift 3 y coordinate bits 3 positions to the left to make room for the 3 x coordinate bits.
+        or ebx, edx         ; Combine the x and the y coordinate bits.
+        or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
+        mov [word ptr edi], ax
+
+        ; Changing the turn of the player.
+        call changeCurrentTurn
+    @@return:
+        ret
+endp movePiece
+
+;;
+proc changeCurrentTurn
+    uses eax
+    mov al, [currentTurn]
+    xor al, 00000001b
+    mov [currentTurn], al
+    ret
+endp changeCurrentTurn
+
+;; Procedures to obtain properties based on the encoded piece.
+proc aliveFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    mov eax, [@@encodedPiece]
+    ;and eax, 10000000000b
+    shr eax, 11
+    ret
+endp aliveFromEncPiece
+
+proc coordinatesFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    xor ebx, ebx
+    mov eax, [@@encodedPiece]
+    and eax, 111000b
+    shr eax, 3
+    mov ebx, [@@encodedPiece]
+    and ebx, 111b
+    ret
+endp coordinatesFromEncPiece
+
+proc typeFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    mov eax, [@@encodedPiece]
+    and eax, 1111000000b
+    shr eax, 6
+    ret
+endp typeFromEncPiece
+
+proc playerFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    mov eax, [@@encodedPiece]
+    and eax, 10000000000b
+    shr eax, 10
+    ret
+endp playerFromEncPiece
+
+proc colorFromPlayer
+    arg @@player:dword
+    xor eax, eax
+    mov eax, [@@player]
+    cmp eax, 0
+    je @@white
+    movzx eax, [blackPieceColor]
+    jmp @@return
+    @@white:
+        movzx eax, [whitePieceColor]
+    @@return:
+        ret
+endp colorFromPlayer
+
+proc pieceArrayFromType
+    arg @@type:dword
+    mov eax, [@@type]
+    cmp eax, 7
+    jle @@typePawn
+    cmp eax, 9
+    jle @@typeRook
+    cmp eax, 11
+    jle @@typeKnight
+    cmp eax, 13
+    jle @@typeBishop
+    cmp eax, 14
+    je @@typeQueen
+    cmp eax, 15
+    je @@typeKing
+
+    @@typePawn:
+        mov eax, offset pionArray
+        jmp @@return
+    @@typeRook:
+        mov eax, offset rookArray
+        jmp @@return
+    @@typeKnight:
+        mov eax, offset knightArray
+        jmp @@return
+    @@typeBishop:
+        mov eax, offset bishopArray
+        jmp @@return
+    @@typeQueen:
+        mov eax, offset queenArray
+        jmp @@return
+    @@typeKing:
+        mov eax, offset kingArray
+
+    @@return:
+        ret
+endp pieceArrayFromType
+
+proc findPieceAddress
+    arg @@x:dword, @@y:dword
+    uses edi, ecx, ebx
+    xor eax, eax
+    xor ebx, ebx
+    lea edi, [word ptr pieces]
+    mov ecx, PIECEAMOUNT
+    @@search:
+        movzx eax, [word ptr edi]
+        call coordinatesFromEncPiece, eax
+        cmp eax, [@@x]
+        jne @@next
+        cmp ebx, [@@y]
+        je @@found
+
+    @@next:
+        add edi, 2
+        loop @@search
+        jmp @@notFound
+    @@found:
+        mov eax, edi
+        jmp @@return
+    @@notFound:
+        xor eax, eax
+    @@return:
+        ret
+endp findPieceAddress
 
 proc drawPiece
     arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@color:dword
     uses eax, ebx, ecx, edx, edi
+
+    ; Convert the grid x- and y-coorindates to pixel coordinates.
+    mov eax, [@@x]
+    mov ebx, CELLDIMENSION
+    mul ebx
+    mov [@@x], eax
+
+    mov eax, [@@y]
+    mov ebx, CELLDIMENSION
+    mul ebx
+    mov [@@y], eax
 
     mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
     mov edx, 0
@@ -441,6 +1012,90 @@ proc offsetFromCoordinate
     ret
 endp offsetFromCoordinate
 
+proc gridCoordinateFromPixelCoordinate
+    arg @@xPixel:dword, @@yPixel:dword
+    uses edx, ecx
+    mov ecx, CELLDIMENSION
+
+    xor ebx, ebx
+    xor edx, edx    ; We must clear the edx register before using the div instruction.
+    mov eax, [@@yPixel]
+    div ecx
+    mov ebx, eax
+    xor edx, edx
+    mov eax, [@@xPixel]
+    div ecx
+    ret
+endp gridCoordinateFromPixelCoordinate
+
+proc selectedPiece
+    uses ebx
+    movzx eax, [selectedCellX]
+    cmp eax, 8
+    jge @@notSelected
+    movzx ebx, [selectedCellY]
+    cmp ebx, 8
+    jge @@notSelected
+    jmp @@selected
+
+    @@notSelected:
+        xor eax, eax
+        jmp @@return
+    @@selected:
+        call findPieceAddress, eax, ebx
+    @@return:
+        ret
+endp selectedPiece
+
+proc selectCell
+    arg @@xPixel:dword , @@yPixel:dword
+    uses eax, ebx, edx, ecx
+    call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; Returns the grid x-coordinate in eax and the grid y-coordinate in ebx
+    push eax
+    push ebx
+    ; If the destination cell does not contain a piece, we may want the currently selected piece (if any) to move to this cell.
+    call findPieceAddress, eax, ebx     ; Returns the address of the piece at the destination cell in eax. If no piece is found, eax is set to 0.
+    push eax                            ; We push this onto the stack since we may need it later in movePiece to remove the piece.
+    cmp eax, 0
+    je @@destinationSelection
+    ; If the destination cell contains a piece, we may want to select this piece if it belongs to the current player.
+    ; If it belongs to the other player, we try to move the currently selected piece (if any) to this cell.
+    mov eax, [eax]
+    call playerFromEncPiece, eax        ; Returns the player (0 or 1) in al
+    cmp al, [currentTurn]               ; If the piece in the destination cell ...
+    jne @@destinationSelection          ;   ... belongs to the other player, we try to move the currently selected piece (if any) to this cell.
+    pop ebx ; thrown away 
+    pop ebx
+    pop eax
+    mov [selectedCellX], al             ;   ... belongs to the current player, we select this piece.
+    mov [selectedCellY], bl
+    jmp @@return
+
+    ; ----- currently not used -----
+    @@unselect:
+        pop eax ; thrown away
+        pop eax
+        pop eax
+        mov [selectedCellX], 8
+        mov [selectedCellY], 8
+        jmp @@return
+    ; ------------------------------
+
+    @@destinationSelection:
+        call selectedPiece      ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
+        cmp eax, 0              ; If no piece is selected, we do nothing.
+        je @@return
+        mov edx, eax            ; If a piece is selected, it will be moved to the destination cell.
+        pop ecx                 ; Popping from stack:   ecx = address of destination piece (can be 0 if no piece is present)
+        pop ebx                 ;                       ebx = y-coordinate of the source piece
+        pop eax                 ;                       eax = x-coorindate of the source piece
+        call movePiece, edx, eax, ebx, ecx
+
+    @@return:
+        call drawBoard
+        ret
+endp selectCell
+
 ; ----------------------------------------------------------------------------
 ; Mouse function
 ; AX = condition mask causing call
@@ -456,20 +1111,29 @@ endp offsetFromCoordinate
 ; DS = DATASEG
 ; ES = DATASEG
 ; ----------------------------------------------------------------------------
-PROC mouseHandler
-    USES eax, ebx, ecx, edx
+proc mouseHandler
+    uses eax, ebx, ecx, edx
+
     ; We update the lastMouseX and lastMouseY variables. When the frame buffer is drawn again, these values will be used.
     ; The x-coordinate is stored in cx, and the y-coordinate is stored in dx.
-    ; Since the lastMouseX and lastMouseY store dwords, we make sure the cx and dx registers are zero-extended to 32 bits.
+    ; Since the lastMouseX and lastMouseY store dwords, we make sure the cx and dx registers are zero-extended to 32 bits using movzx.
     movzx ecx, cx
     movzx edx, dx
     mov [lastMouseX], ecx
     mov [lastMouseY], edx
     
-    ret
-ENDP mouseHandler
+    ; We check if the left mouse button is pressed. If this is the case, we update the selected cell.
+    and bl, 3
+    jz @@return
+    call selectCell, ecx, edx
 
-PROC main
+    @@return:
+        call drawBoard
+        call transferFrame
+        ret
+endp mouseHandler
+
+proc main
 	sti
 	cld
 
@@ -479,43 +1143,46 @@ PROC main
 	; set video mode, init registers
     call setupVideo
     
-    ; check if the mouse is present
+    ; We check if the mouse is present. If this is not the case, we print a message to the screen and terminate the program.
+    ; If the mouse is present, we install the mouse handler.
     call mouse_present
     cmp eax, 1
     je @@mouse_present
-    ; if mouse is not present, print to stdout and finish
     mov ah, 9
     mov edx, offset msgMissingMouse
     int 21h
     jmp @@finish
-
-    ; install mouse if present
     @@mouse_present:
         call mouse_install, offset mouseHandler
 
-    call drawBoard
+    ; Load the pieces from the bitmap files and draw the board with pieces.
     call loadPieces
+    call drawBoard
+    call transferFrame
+
+    ; TEST CASE
+    mov eax, (24 * 2) + 5
+    mov ebx, (24 * 6) + 5
+    call selectCell, eax, ebx
+    mov eax, (24 * 2) + 5
+    mov ebx, (24 * 4) + 5
+    call selectCell, eax, ebx
+    ;mov eax, 5
+    ;mov ebx, 5
+    ;call selectCell, eax, ebx
+    ;mov eax, 5
+    ;mov ebx, 25
+    ;call selectCell, eax, ebx
     
-    ;mov eax, [dword ptr string1]
-    ;call drawString, 50, 50, eax, 3
-	
     @@animation_loop:
-
-        ; TODO frame must be cleared if necessary
-        ; TODO something with VBlank
-        ;call drawBoard
-        ;call drawPieces
         
-        call transferFrame
-
-        
-        ; check for early termination
+        ; If the ESC key is pressed, the program is terminated.
         xor al, al
         mov	ah, 01h
         int	16h
         cmp	al, 1Bh
         je	@@finish
-        loop @@animation_loop
+        jmp @@animation_loop
     
 
     @@finish:
@@ -524,7 +1191,7 @@ PROC main
 
 
 
-ENDP main
+endp main
 
 
 
@@ -532,12 +1199,36 @@ ENDP main
 ; DATA
 ; -------------------------------------------------------------------
 DATASEG
+    
+    ; Each chess piece is encoded in a word. The format is as follows (where B represents a bit):
+    ;       B   BBBB   BBB   BBB
+    ;       |   |      |     |
+    ;      (1) (2)    (3)   (4)
+    ;
+    ; (1):  PLAYER
+    ;       0 = white
+    ;       1 = black
+    ; (2):  PIECE TYPE
+    ;       0000 until 0111     = pawns
+    ;       1000 and 1001       = rooks
+    ;       1010 and 1011       = knights
+    ;       1100 and 1101       = bishops
+    ;       1110                = queen
+    ;       1111                = king
+    ; (3):  X-COORDINATE
+    ; (4):  Y-COORDINATE
+    
+    pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
+            dw 100000000001b, 100001001001b, 100010010001b, 100011011001b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
+            dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
+            dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
+
     framebuffer db 64000 dup (0)
     selectedcell dd 1
     leftcellvisible dw 0
     rightcellvisible dw 0
     fontfilename db "GUI\FONT.BIN", 0
-    fontarray db FONTFILE_SIZE dup (?)
+    ;fontarray db FONTFILE_SIZE dup (?)
     
     pionFileName db "bitmaps/pawn.bin", 0
     kingFileName db "bitmaps/king.bin", 0
@@ -553,13 +1244,21 @@ DATASEG
     queenArray dd PIECE_SIZE dup (?)
     kingArray dd PIECE_SIZE dup (?)
 
-    whiteColor db 35h
-    blackColor db 37h
+    whiteColor db 42h
+    blackColor db 06h
+
+    whitePieceColor db 0Fh
+    blackPieceColor db 00h
 
     lastMouseX dd 0
     lastMouseY dd 0
 
     msgMissingMouse db 'Mouse missing! Terminating ...', 13, 10, '$'
+
+    selectedCellX db 8
+    selectedCellY db 8
+
+    currentTurn db 1
     
 
 ; -------------------------------------------------------------------
