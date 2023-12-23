@@ -99,18 +99,33 @@ endp drawCell
 
 proc determineCellColor
     arg @@x:dword, @@y:dword
-    ; returns eax
+    uses edx, ecx, ebx
+
+    ; When the current cell is a selected cell, the cell must be coloured green.
     mov eax, [@@x]
     movzx ecx, [selectedCellX]
     cmp eax, ecx
-    jne @@getColor
+    jne @@checkMouseHover
     mov eax, [@@y]
     movzx ecx, [selectedCellY]
     cmp eax, ecx
-    jne @@getColor
+    jne @@checkMouseHover
     xor eax, eax
     mov al, 02h
     jmp @@return
+
+    @@checkMouseHover:
+        ; When the mouse is present in the current cell, the cell must be coloured blue.
+        call gridCoordinateFromPixelCoordinate, [lastMouseX], [lastMouseY]  ; Returns the x- and y-coordinate of the cell in which the mouse is in eax and ebx respectively.
+        mov edx, [@@x]
+        cmp edx, eax
+        jne @@getColor
+        mov edx, [@@y]
+        cmp edx, ebx
+        jne @@getColor
+        xor eax, eax
+        mov al, 03h
+        jmp @@return
 
     @@getColor:
         mov eax, [@@x]
@@ -1113,6 +1128,7 @@ proc mouseHandler
     call selectCell, ecx, edx
 
     @@return:
+        call drawBoard
         call transferFrame
         ret
 endp mouseHandler
