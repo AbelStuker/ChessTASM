@@ -53,6 +53,7 @@ proc drawBoard
         jl @@drawRow
 
     call drawPieces
+   ;call drawCharacter, 'A'
     ret
     
 endp drawBoard
@@ -204,7 +205,9 @@ proc getFileHandle
     mov ecx, [@@accessMode]
     mov ah, 3Dh
     int 21h                     ; carry flag (CF) is set to 1 in case of error 
-    ;; TODO: handle CF=1 (error case)
+    jnc @@return
+    call terminateProcess
+    @@return:
     ret
 endp getFileHandle
 
@@ -219,7 +222,12 @@ proc readFile
     mov ecx, [@@byteCount]
     mov edx, [@@dataBuffer]
     int 21h                     ; carry flag (CF) is set to 1 in case of error 
-    ;; TODO: handle CF=1 (error case)
+                                ; amount of bytes read in ax (or error code)
+    jnc @@return
+    mov eax, 16
+    call terminateProcess       
+
+    @@return:
     ret
 endp readFile
 
@@ -236,26 +244,26 @@ endp closeFile
 
 ;;
 
-proc loadPiece
-    arg @@fileName:dword, @@dataBuffer:dword
+proc loadBitmap
+    arg @@fileName:dword, @@dataBuffer:dword, @@size:dword
     uses eax, ebx
     
     call getFileHandle, [@@fileName], 0
     mov ebx, eax
-    call readFile, ebx, [@@dataBuffer], PIECE_SIZE
+    call readFile, ebx, [@@dataBuffer], [@@size]
     call closeFile, ebx
 
     ret
 
-endp loadPiece
+endp loadBitmap
 
 proc loadPieces
-    call loadPiece, offset pionFileName, offset pionArray
-    call loadPiece, offset rookFileName, offset rookArray
-    call loadPiece, offset knightFileName, offset knightArray
-    call loadPiece, offset bishopFileName, offset bishopArray
-    call loadPiece, offset queenFileName, offset queenArray
-    call loadPiece, offset kingFileName, offset kingArray
+    call loadBitmap, offset pionFileName, offset pionArray, BYTES_PER_PIECE
+    call loadBitmap, offset rookFileName, offset rookArray, BYTES_PER_PIECE
+    call loadBitmap, offset knightFileName, offset knightArray, BYTES_PER_PIECE
+    call loadBitmap, offset bishopFileName, offset bishopArray, BYTES_PER_PIECE
+    call loadBitmap, offset queenFileName, offset queenArray, BYTES_PER_PIECE
+    call loadBitmap, offset kingFileName, offset kingArray, BYTES_PER_PIECE
     ret
 endp loadPieces
 
@@ -283,7 +291,7 @@ proc drawPieces
         mov ecx, eax
         pop eax
         call coordinatesFromEncPiece, eax
-        call drawPiece, edx, eax, ebx, ecx
+        call drawPiece, edx, eax, ebx, PIECE_WIDTH, PIECE_HEIGHT, ecx
 
         @@continue:
             add edi, 2
@@ -903,8 +911,15 @@ proc findPieceAddress
 endp findPieceAddress
 
 proc drawPiece
-    arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@color:dword
+    arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@width:dword, @@height:dword, @@color:dword
+    local @@size:dword
     uses eax, ebx, ecx, edx, edi
+
+    ; Calculate the size of the bitmap
+    mov eax, [@@width]
+    mov ebx, [@@height]
+    mul ebx
+    mov [@@size], eax
 
     ; Convert the grid x- and y-coorindates to pixel coordinates.
     mov eax, [@@x]
@@ -944,7 +959,7 @@ proc drawPiece
                                 ; This does not correspond to the actual bit index, since we read each dword backwards due to little endian memory organisation.
             add eax, edx        ; In order to calculate the total offset, we add the current bit offset in the current dword (eax) to the offset where the current
             sub eax, ecx        ;   dword begins (i.e. the total amount of bits counted minus the amount of bits counted in the current dword: eax - ecx).
-            mov ebx, PIECE_WIDTH
+            mov ebx, [@@width]
             push edx            ; store edx (byte in buffer index) because edx is used to store remainder after division
             xor edx, edx
             div ebx             ; y-index in eax, x-index in edx
@@ -956,7 +971,7 @@ proc drawPiece
             pop eax
             inc ecx
             inc edx
-            cmp edx, PIECE_SIZE
+            cmp edx, [@@size]
             je @@return
             cmp ecx, 32
             jl @@dword_loop
@@ -1127,6 +1142,28 @@ proc selectCell
         ret
 endp selectCell
 
+
+
+proc drawCharacter
+    arg @@char:dword
+    uses eax, ebx
+
+    mov eax, offset asciiArray ; TODO remove
+    call loadBitmap, offset asciiFileName, offset asciiArray, ASCII_FONT_BYTES
+
+    ; Indexing the asciiArray at the ASCII value of the character.
+    mov eax, [@@char]
+    mov ebx, BYTES_PER_CHAR
+    mul ebx
+    add eax, offset asciiArray
+
+    ; Drawing the character
+    call drawPiece, eax, 8, 8, CHAR_WIDTH, CHAR_HEIGHT, 0Fh
+    
+    ret
+endp drawCharacter
+
+
 ; ----------------------------------------------------------------------------
 ; Mouse function
 ; AX = condition mask causing call
@@ -1187,6 +1224,7 @@ proc main
         call mouse_install, offset mouseHandler
 
     ; Load the pieces from the bitmap files and draw the board with pieces.
+    call drawCharacter, 'A'
     call loadPieces
     call drawBoard
     call transferFrame
@@ -1261,6 +1299,8 @@ DATASEG
     fontfilename db "GUI\FONT.BIN", 0
     ;fontarray db FONTFILE_SIZE dup (?)
     
+
+    asciiFileName db "bitmaps/asciifont.bin", 0
     pionFileName db "bitmaps/pawn.bin", 0
     kingFileName db "bitmaps/king.bin", 0
     queenFileName db "bitmaps/queen.bin", 0
@@ -1268,12 +1308,7 @@ DATASEG
     knightFileName db "bitmaps/knight.bin", 0
     rookFileName db "bitmaps/rook.bin", 0
 
-    pionArray dd PIECE_SIZE dup (?)
-    rookArray dd PIECE_SIZE dup (?)
-    knightArray dd PIECE_SIZE dup (?)
-    bishopArray dd PIECE_SIZE dup (?)
-    queenArray dd PIECE_SIZE dup (?)
-    kingArray dd PIECE_SIZE dup (?)
+
 
     whiteColor db 42h
     blackColor db 06h
@@ -1292,6 +1327,17 @@ DATASEG
     prevSelectedCellY db 8
 
     currentTurn db 1
+
+UDATASEG
+
+    asciiArray db ASCII_FONT_BYTES dup (?)
+
+    pionArray dd DWORDS_PER_PIECE dup (?)
+    rookArray dd DWORDS_PER_PIECE dup (?)
+    knightArray dd DWORDS_PER_PIECE dup (?)
+    bishopArray dd DWORDS_PER_PIECE dup (?)
+    queenArray dd DWORDS_PER_PIECE dup (?)
+    kingArray dd DWORDS_PER_PIECE dup (?)
     
 
 ; -------------------------------------------------------------------
