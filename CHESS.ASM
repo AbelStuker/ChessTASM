@@ -105,14 +105,28 @@ proc determineCellColor
     mov eax, [@@x]
     movzx ecx, [selectedCellX]
     cmp eax, ecx
-    jne @@checkMouseHover
+    jne @@checkprevSelectedCell
     mov eax, [@@y]
     movzx ecx, [selectedCellY]
     cmp eax, ecx
-    jne @@checkMouseHover
+    jne @@checkprevSelectedCell
     xor eax, eax
-    mov al, 02h
+    mov al, 78h
     jmp @@return
+
+    @@checkprevSelectedCell:
+        ; When the current cell is a previously selected cell (source of a piece move).
+        mov eax, [@@x]
+        movzx ecx, [prevSelectedCellX]
+        cmp eax, ecx
+        jne @@checkMouseHover
+        mov eax, [@@y]
+        movzx ecx, [prevSelectedCellY]
+        cmp eax, ecx
+        jne @@checkMouseHover
+        xor eax, eax
+        mov al, 75h
+        jmp @@return
 
     @@checkMouseHover:
         ; When the mouse is present in the current cell, the cell must be coloured blue.
@@ -728,6 +742,20 @@ proc movePiece
     call killPiece, [@@destPieceAddress]
 
     @@move:
+        ; Updating the previously selected cell
+        push eax
+        mov al, [selectedCellX]
+        mov [prevSelectedCellX], al
+        mov al, [selectedCellY]
+        mov [prevSelectedCellY], al
+
+        ; Updating the selected cell to the destination cell.
+        mov eax, [@@x]
+        mov [selectedCellX], al 
+        mov eax, [@@y]
+        mov [selectedCellY], bl
+        pop eax
+
         ; Updating the position of the piece.
         and eax, 111111000000b
         mov ebx, [@@x]
@@ -1069,6 +1097,8 @@ proc selectCell
     pop eax
     mov [selectedCellX], al             ;   ... belongs to the current player, we select this piece.
     mov [selectedCellY], bl
+    mov [prevSelectedCellX], 8          ; The source of the previous piece movement is no longer relevant.
+    mov [prevSelectedCellY], 8          ;
     jmp @@return
 
     ; ----- currently not used -----
@@ -1089,6 +1119,7 @@ proc selectCell
         pop ecx                 ; Popping from stack:   ecx = address of destination piece (can be 0 if no piece is present)
         pop ebx                 ;                       ebx = y-coordinate of the source piece
         pop eax                 ;                       eax = x-coorindate of the source piece
+
         call movePiece, edx, eax, ebx, ecx
 
     @@return:
@@ -1257,6 +1288,8 @@ DATASEG
 
     selectedCellX db 8
     selectedCellY db 8
+    prevSelectedCellX db 8
+    prevSelectedCellY db 8
 
     currentTurn db 1
     
