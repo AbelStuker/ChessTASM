@@ -224,7 +224,7 @@ proc readFile
     int 21h                     ; carry flag (CF) is set to 1 in case of error 
                                 ; amount of bytes read in ax (or error code)
     jnc @@return
-    mov eax, 16
+
     call terminateProcess       
 
     @@return:
@@ -256,6 +256,11 @@ proc loadBitmap
     ret
 
 endp loadBitmap
+
+proc loadFont
+    call loadBitmap, offset asciiFileName, offset asciiArray, ASCII_FONT_BYTES
+    ret
+endp loadFont
 
 proc loadPieces
     call loadBitmap, offset pionFileName, offset pionArray, BYTES_PER_PIECE
@@ -291,7 +296,7 @@ proc drawPieces
         mov ecx, eax
         pop eax
         call coordinatesFromEncPiece, eax
-        call drawPiece, edx, eax, ebx, PIECE_WIDTH, PIECE_HEIGHT, ecx
+        call drawPiece, edx, eax, ebx, ecx
 
         @@continue:
             add edi, 2
@@ -640,7 +645,6 @@ proc checkKingMove
         ret
 endp checkKingMove
 
-;;
 proc calculatePossibleMove
     arg @@encodedPiece:dword, @@destinationX:dword, @@destinationY:dword
     local @@player:dword, @@type:byte, @@pieceX:dword, @@pieceY:dword, @@destinationOccupation:dword
@@ -911,15 +915,8 @@ proc findPieceAddress
 endp findPieceAddress
 
 proc drawPiece
-    arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@width:dword, @@height:dword, @@color:dword
-    local @@size:dword
-    uses eax, ebx, ecx, edx, edi
-
-    ; Calculate the size of the bitmap
-    mov eax, [@@width]
-    mov ebx, [@@height]
-    mul ebx
-    mov [@@size], eax
+    arg @@dataBuffer:dword, @@x:dword, @@y:dword, @@color:dword
+    uses eax, ebx, edx
 
     ; Convert the grid x- and y-coorindates to pixel coordinates.
     mov eax, [@@x]
@@ -932,7 +929,22 @@ proc drawPiece
     mul ebx
     mov [@@y], eax
 
-    mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
+    call drawBitmap, [@@dataBuffer], [@@x], [@@y], PIECE_WIDTH, PIECE_SIZE, [@@color]
+    ret
+endp drawPiece
+
+proc drawBitmap
+    arg @@dataBuffer:dword, @@xPixel:dword, @@yPixel:dword, @@width:dword, @@size:dword, @@color:dword
+    ;local @@size:dword
+    uses eax, ebx, ecx, edx, edi
+
+    ; Calculate the size of the bitmap
+    ;mov eax, [@@width]
+    ;mov ebx, [@@height]
+    ;mul ebx
+    ;mov [@@size], eax
+
+    mov edi, [@@dataBuffer]     ; edi contains address where bitmap starts
     mov edx, 0
     @@bitmap_loop:
         mov eax, [dword ptr edi]
@@ -947,9 +959,9 @@ proc drawPiece
             xor edx, edx
             mov eax, ecx        ; move current index of dword_loop to eax
             mov ebx, 8
-            div ebx             ; divide index by 8 : current byte offset (starting from right) in eax, current bit offset in byte (starting from right) in edx
+            div ebx             ; divide index by 8 to get the current byte offset (starting from right in the dword) in eax, current bit offset in byte (starting from right in the byte) in edx
             mov ebx, 7
-            sub ebx, edx        ; (7 - byte offset from right) to get current bit starting from left instead of right of byte 
+            sub ebx, edx        ; (7 - bit offset from right) to get current bit starting from left instead of right of byte 
             push ebx
             mov ebx, 8
             mul ebx             ; multiply byte offset with 8 to get bit offset
@@ -963,8 +975,8 @@ proc drawPiece
             push edx            ; store edx (byte in buffer index) because edx is used to store remainder after division
             xor edx, edx
             div ebx             ; y-index in eax, x-index in edx
-            add edx, [@@x]
-            add eax, [@@y]
+            add edx, [@@xPixel]
+            add eax, [@@yPixel]
             call drawPixel, edx, eax, [@@color]
             pop edx             ; restore edx
         @@continue:
@@ -1023,7 +1035,7 @@ proc drawPiece
     @@return:
         ret
     
-endp drawPiece
+endp drawBitmap
 
 ;; --------
 
@@ -1143,13 +1155,39 @@ proc selectCell
 endp selectCell
 
 
+proc drawString
+    arg @@string:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword
+
+    ; Add padding
+    add [@@xPixel], CHAR_PADDING
+    add [@@yPixel], CHAR_PADDING
+
+    mov eax, [@@string]
+    @@loopString:
+        movzx ebx, [byte ptr eax]
+        cmp ebx, 0
+        je @@return
+        call drawCharacter, ebx, [@@xPixel], [@@yPixel], [@@color]
+        inc eax
+        add [@@xPixel], CHAR_WIDTH
+        add [@@xPixel], CHAR_SPACING
+        jmp @@loopString
+
+    @@return:
+        ; Return the x- and y-coordinates of the right bottom of the string text box (incl. padding).
+        add [@@xPixel], CHAR_PADDING
+        add [@@yPixel], CHAR_HEIGHT
+        add [@@yPixel], CHAR_PADDING
+        mov eax, [@@xPixel]
+        mov ebx, [@@yPixel]
+        ret
+
+endp drawString
+
 
 proc drawCharacter
-    arg @@char:dword
-    uses eax, ebx
-
-    mov eax, offset asciiArray ; TODO remove
-    call loadBitmap, offset asciiFileName, offset asciiArray, ASCII_FONT_BYTES
+    arg @@char:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword
+    uses eax, ebx, edx
 
     ; Indexing the asciiArray at the ASCII value of the character.
     mov eax, [@@char]
@@ -1158,7 +1196,7 @@ proc drawCharacter
     add eax, offset asciiArray
 
     ; Drawing the character
-    call drawPiece, eax, 8, 8, CHAR_WIDTH, CHAR_HEIGHT, 0Fh
+    call drawBitmap, eax, [@@xPixel], [@@yPixel], CHAR_WIDTH, CHAR_FULL_SIZE, [@@color]
     
     ret
 endp drawCharacter
@@ -1223,10 +1261,17 @@ proc main
     @@mouse_present:
         call mouse_install, offset mouseHandler
 
+    ; Load the fonts from the bitmap file.
+    call loadFont
     ; Load the pieces from the bitmap files and draw the board with pieces.
-    call drawCharacter, 'A'
     call loadPieces
     call drawBoard
+
+    ; DUMMY TEXT
+    call drawCharacter, 'B', FIELDDIMENSION, 0, 0Fh
+    call drawString, offset testString, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
+    call drawString, offset testString, FIELDDIMENSION, ebx, 0Fh
+
     call transferFrame
 
     ; TEST CASE
@@ -1300,7 +1345,7 @@ DATASEG
     ;fontarray db FONTFILE_SIZE dup (?)
     
 
-    asciiFileName db "bitmaps/asciifont.bin", 0
+    asciiFileName db "bitmaps/font.bin", 0
     pionFileName db "bitmaps/pawn.bin", 0
     kingFileName db "bitmaps/king.bin", 0
     queenFileName db "bitmaps/queen.bin", 0
@@ -1327,6 +1372,8 @@ DATASEG
     prevSelectedCellY db 8
 
     currentTurn db 1
+
+    testString db "DIT IS TEKST", 0
 
 UDATASEG
 

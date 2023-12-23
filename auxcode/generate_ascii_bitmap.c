@@ -7,7 +7,7 @@
 
 int main() {
     FILE *outputFile;
-    outputFile = fopen("ascii_font.bin", "wb");
+    outputFile = fopen("font.bin", "wb");
     if (outputFile == NULL) {
         printf("Error opening file for writing.\n");
         return 1;
@@ -32,7 +32,7 @@ int main() {
         } else {
             int empty_bytes = FONT_BYTES;
             while (empty_bytes-- > 0) {
-                fputc('Z', outputFile);
+                fputc(0, outputFile);
             }
         }
         val++;
