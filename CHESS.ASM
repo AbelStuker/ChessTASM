@@ -53,7 +53,6 @@ proc drawBoard
         jl @@drawRow
 
     call drawPieces
-   ;call drawCharacter, 'A'
     ret
     
 endp drawBoard
@@ -203,7 +202,7 @@ proc determineCellColor
         cmp edx, ebx
         jne @@getColor
         xor eax, eax
-        mov al, 03h
+        mov al, [turnColor]
         jmp @@return
 
     @@getColor:
@@ -852,7 +851,27 @@ endp movePiece
 ;;
 proc changeCurrentTurn
     uses eax
+
     mov al, [currentTurn]
+    push eax
+
+    ; Update the timer on which the player ended to the time he currently has left.
+    cmp al, 0
+    je @@white
+    mov ebx, [blackTimer]
+    mov [blackLastTime], ebx
+    jmp @@updateStartTime
+    @@white:
+        mov ebx, [whiteTimer]
+        mov [whiteLastTime], ebx
+
+    ; Updating the starting time of the current turn.
+    @@updateStartTime:
+        call getTime
+        mov [startTime], eax
+
+    ; Changing the current turn indicator.
+    pop eax
     xor al, 00000001b
     mov [currentTurn], al
     ret
@@ -1219,27 +1238,41 @@ proc selectCell
 endp selectCell
 
 proc drawString
-    arg @@string:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword
+    arg @@string:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword, @@backgroundColor:dword
+
+    ; To fill the padding of the top and bottom at the end, we need to know the initial x- and y-coordinates.
+    push [@@yPixel]
+    push [@@xPixel]
 
     ; Add padding
-    add [@@xPixel], CHAR_PADDING
     add [@@yPixel], CHAR_PADDING
+    call drawRectangle, [@@xPixel], [@@yPixel], CHAR_PADDING, CHAR_HEIGHT, [@@backgroundColor]      ; Fill left padding with backgroundcolor.
+    add [@@xPixel], CHAR_PADDING
 
     mov eax, [@@string]
     @@loopString:
         movzx ebx, [byte ptr eax]
         cmp ebx, 0
         je @@return
-        call drawCharacter, ebx, [@@xPixel], [@@yPixel], [@@color]
+        call drawCharacter, ebx, [@@xPixel], [@@yPixel], [@@color], [@@backgroundColor]
         inc eax
         add [@@xPixel], CHAR_WIDTH
+        call drawRectangle, [@@xPixel], [@@yPixel], CHAR_SPACING, CHAR_HEIGHT, [@@backgroundColor]
         add [@@xPixel], CHAR_SPACING
         jmp @@loopString
 
     @@return:
         ; Return the x- and y-coordinates of the right bottom of the string text box (incl. padding).
+        ; Coloring the padding.
+        call drawRectangle, [@@xPixel], [@@yPixel], CHAR_PADDING, CHAR_HEIGHT, [@@backgroundColor]  ; Fill right padding with backgroundcolor.
         add [@@xPixel], CHAR_PADDING
+        pop eax             ; eax = initial x-coordinate
+        mov edx, [@@xPixel] ; edx = current x-coordinate
+        sub edx, eax        ; edx = width of the string text box (incl. padding)
+        pop ebx             ; ebx = initial y-coordinate
+        call drawRectangle, eax, ebx, edx, CHAR_PADDING, [@@backgroundColor]                        ; Fill top padding with backgroundcolor.
         add [@@yPixel], CHAR_HEIGHT
+        call drawRectangle, eax, [@@yPixel], edx, CHAR_PADDING, [@@backgroundColor]                 ; Fill bottom padding with backgroundcolor.
         add [@@yPixel], CHAR_PADDING
         mov eax, [@@xPixel]
         mov ebx, [@@yPixel]
@@ -1249,7 +1282,7 @@ endp drawString
 
 
 proc drawCharacter
-    arg @@char:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword
+    arg @@char:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword, @@backgroundColor:dword
     uses eax, ebx, edx
 
     ; Indexing the asciiArray at the ASCII value of the character.
@@ -1259,7 +1292,7 @@ proc drawCharacter
     add eax, offset asciiArray
 
     ; Clearing the backgrond
-    call drawRectangle, [@@xPixel], [@@yPixel], CHAR_WIDTH, CHAR_HEIGHT, 00h
+    call drawRectangle, [@@xPixel], [@@yPixel], CHAR_WIDTH, CHAR_HEIGHT, [@@backgroundColor]
 
     ; Drawing the character
     call drawBitmap, eax, [@@xPixel], [@@yPixel], CHAR_WIDTH, CHAR_FULL_SIZE, [@@color]
@@ -1335,20 +1368,55 @@ proc secondsToTimeStamp
     call writeNumberToAsciiBuffer, eax, 2, edi
     add edi, 2
     mov [byte ptr edi], ':'
-    inc edi
+    add edi, 1
     call writeNumberToAsciiBuffer, edx, 2, edi
     
     ret
 endp secondsToTimeStamp
 
 proc updateTimers
-    uses eax, ebx
-    mov ebx, [startTime]
-    call getTime
-    sub eax, ebx
-    call secondsToTimeStamp, eax, offset whiteTimerText
-    call drawString, offset whiteTimerText, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
-    call transferFrame
+    uses eax, ebx, edx
+
+    cmp [winner], 2
+    jne @@return
+    cmp [currentTurn], 0
+    je @@whiteTurn
+    mov ebx, [blackLastTime]
+    mov eax, offset blackTimer
+    mov edx, offset blackTimerText
+    jmp @@updateTimer
+    @@whiteTurn:
+    mov ebx, [whiteLastTime]
+    mov eax, offset whiteTimer
+    mov edx, offset whiteTimerText
+    
+    @@updateTimer:
+    push edx
+    push eax
+    push ebx
+    call getTime                    ; eax = current time
+    mov ebx, [startTime]            ; ebx = time when current turn started
+    sub eax, ebx                    ; eax = time elapsed since current turn started
+    pop ebx                         ; ebx = time left when current turn started
+    sub ebx, eax                    ; ebx = time left
+    pop eax                         ; eax = address of timer
+    mov [eax], ebx
+    cmp ebx, 0
+    jle @@lost
+    jmp @@drawTimeStamp
+
+    @@lost:
+        mov [eax], 0            ; Making sure the value is set zero and not to a negative value.
+        mov dl, [currentTurn]
+        xor dl, 1
+        mov [winner], dl        ; The opponent is the winner
+
+
+    @@drawTimeStamp:
+        pop edx
+        call secondsToTimeStamp, ebx, edx
+    
+    @@return:
     ret
 endp updateTimers
 
@@ -1358,10 +1426,66 @@ proc initializeTimers
     call getTime
     mov ebx, offset startTime
     mov [ebx], eax
-    call secondsToTimeStamp, 0, offset whiteTimerText
-    call drawString, offset whiteTimerText, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
+    call secondsToTimeStamp, PLAY_TIME, offset whiteTimerText
+    call secondsToTimeStamp, PLAY_TIME, offset blackTimerText
+
     ret
 endp initializeTimers
+
+proc updateInformation
+    uses eax, ebx
+    local @@whiteBackground:dword, @@blackBackground:dword
+
+    call updateTimers
+
+    cmp [winner], 2
+    jne @@determineWinner
+    ; Determine the colours based on the current turn.
+    cmp [currentTurn], 0
+    je @@whiteTurn
+    mov [@@whiteBackground], 0FFh
+    movzx eax, [turnColor]
+    mov [@@blackBackground], eax
+    jmp @@continue
+    @@whiteTurn:
+        movzx eax, [turnColor]
+        mov [@@whiteBackground], eax
+        mov [@@blackBackground], 0FFh
+        jmp @@continue
+
+    @@determineWinner:
+        cmp [winner], 0
+        movzx eax, [winnerColor]
+        je @@whiteWinner
+        ; Black wins
+        mov [@@whiteBackground], 0FFh
+        mov [@@blackBackground], eax
+        jmp @@continue
+        @@whiteWinner:
+            ; White wins
+            mov [@@whiteBackground], eax
+            mov [@@blackBackground], 0FFh
+        
+
+
+
+    @@continue:
+    call drawString, offset whiteString, FIELDDIMENSION, 0, 0Fh, 0FFh
+    call drawString, offset whiteTimerText, FIELDDIMENSION, TEXT_HEIGHT, 0Fh, [@@whiteBackground]
+    cmp [winner], 0
+    jne @@drawBlackSection
+    call drawString, offset wonString, eax, TEXT_HEIGHT, [@@whiteBackground], 0FFh
+
+    @@drawBlackSection:
+    call drawString, offset blackString, FIELDDIMENSION, (FIELDDIMENSION - TEXT_HEIGHT - TEXT_HEIGHT), 0Fh, 0FFh
+    call drawString, offset blackTimerText, FIELDDIMENSION, (FIELDDIMENSION - TEXT_HEIGHT), 0Fh, [@@blackBackground]
+    cmp [winner], 1
+    jne @@return
+    call drawString, offset wonString, eax, (FIELDDIMENSION - TEXT_HEIGHT), [@@blackBackground], 0FFh
+
+    @@return:
+    ret
+endp updateInformation
 
 ; ----------------------------------------------------------------------------
 ; Mouse function
@@ -1438,10 +1562,6 @@ proc main
     call loadPieces
     call drawBoard
 
-    ; DUMMY TEXT
-    call drawCharacter, 'B', FIELDDIMENSION, 0, 0Fh
-    ;call drawString, offset testString, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
-
     call initializeTimers
     call transferFrame
 
@@ -1460,7 +1580,9 @@ proc main
     ;call selectCell, eax, ebx
     
     @@animation_loop:
-        call updateTimers
+    
+        call updateInformation
+        call transferFrame
         ; If the ESC key is pressed, the program is terminated.
         xor al, al
         mov	ah, 01h
@@ -1525,17 +1647,20 @@ DATASEG
     rookFileName db "bitmaps/rook.bin", 0
 
 
-
+    turnColor db 03h
     whiteColor db 42h
     blackColor db 06h
 
     whitePieceColor db 0Fh
     blackPieceColor db 00h
 
-    startTime dd 0
+    winnerColor db 02h
 
-    whiteTimer dd (60 * 10)
-    blackTimer dd (60 * 10)
+    startTime dd 0
+    whiteLastTime dd PLAY_TIME
+    blackLastTime dd PLAY_TIME
+    whiteTimer dd PLAY_TIME
+    blackTimer dd PLAY_TIME
 
     whiteTimerText db "00:00", 0
     blackTimerText db "00:00", 0
@@ -1551,8 +1676,16 @@ DATASEG
     prevSelectedCellY db 8
 
     currentTurn db 1
+    winner db 2        ; 2 = undecided, 0 = white, 1 = black
 
-    testString db "0123456789", 0
+    whiteString db "WHITE", 0
+    blackString db "BLACK", 0
+    turnString db "->", 0
+
+    wonString db "WON", 0
+    lostString db "LOST", 0
+
+    emptryString db 0
 
 UDATASEG
 
