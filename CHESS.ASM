@@ -58,9 +58,9 @@ proc drawBoard
     
 endp drawBoard
 
-proc drawCell
-    uses eax, edx, ecx
-    arg @@x:dword, @@y:dword
+;proc drawCell
+;    uses eax, edx, ecx
+;    arg @@x:dword, @@y:dword
 
     ; Calculate the offset of the top-left corner pixel of the cell.
     ; The offset is calculated by multiplying the y-coordinate with the celldimension to obtain the pixel y-coordinate.
@@ -68,22 +68,86 @@ proc drawCell
     ; After that, the x-coordinate is multiplied with the celldimension to obtain the pixel x-coordinate.
     ; Lastly, the pixel x-corodinate is added to the offset of the first pixel of the line.
     ; We now have the offset of the top-left corner pixel of the cell.
-    mov eax, [@@y]
-    mov edx, CELLDIMENSION
-    mul edx 
-    mov edx, SCREENWIDTH
-    mul edx                 
-    mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
-    mov eax, [@@x] 
-    mov edx, CELLDIMENSION
-    mul edx                 ; eax contains the x-coordinate of the top-left corner of the cell
-    add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
+;    mov eax, [@@y]
+;    mov edx, CELLDIMENSION
+;    mul edx 
+;    mov edx, SCREENWIDTH
+;    mul edx                 
+;    mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
+;    mov eax, [@@x] 
+;    mov edx, CELLDIMENSION
+;    mul edx                 ; eax contains the x-coordinate of the top-left corner of the cell
+;    add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
     
+;    call determineCellColor, [@@x], [@@y]     ; The color of the cell is obtained in eax.
+
+;    xor edx, edx    
+;    @@verticalLoop:
+;        mov ecx, CELLDIMENSION;
+
+;        @@horizontalLoop:
+;            mov [framebuffer + ebx + ecx - 1], al
+;            loop @@horizontalLoop
+
+;        inc edx
+;        add ebx, SCREENWIDTH        ; add screenwidth to ebx (offset) to jump to the leftmost pixel at the next line
+;        cmp edx, CELLDIMENSION
+;        jl @@verticalLoop
+
+;    ret
+
+;endp drawCell
+
+
+proc drawCell
+    uses eax, edx, ecx
+    arg @@x:dword, @@y:dword
+    local @@pixelX:dword, @@pixelY:dword
+
+    ; Converting the grid-coordinates into pixel-coordinates.
+    ;   Calculate the offset of the top-left corner pixel of the cell.
+    ;   The offset is calculated by multiplying the y-coordinate with the celldimension to obtain the pixel y-coordinate.
+    ;   After that, the x-coordinate is multiplied with the celldimension to obtain the pixel x-coordinate.
+    mov eax, [@@y]
+    mov ebx, CELLDIMENSION
+    xor edx, edx
+    mul ebx         
+    mov [@@pixelY], eax
+    
+    mov eax, [@@x] 
+    mov ebx, CELLDIMENSION
+    xor edx, edx
+    mul ebx
+    mov [@@pixelX], eax
+
+    ; Determine the color based on the grid coordinates of the cell.
     call determineCellColor, [@@x], [@@y]     ; The color of the cell is obtained in eax.
 
+    call drawRectangle, [@@pixelX], [@@pixelY], CELLDIMENSION, CELLDIMENSION, eax
+    ret
+
+endp drawCell
+
+proc drawRectangle
+    arg @@x:dword, @@y:dword, @@width:dword, @@height:dword, @@color:dword
+    uses eax, edx, ecx, ebx
+
+    ; The pixel y-coordinate is multiplied with the screenwidth to obtain the offset of the first pixel of the line containing the top-left corner of the cell.
+    ; Then, the pixel x-corodinate is added to the offset of the first pixel of the line.
+    ; We now have the offset of the top-left corner pixel of the cell.
+
+    mov eax, [@@y]
+    mov ebx, SCREENWIDTH
+    xor edx, edx
+    mul ebx
+    mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
+    mov eax, [@@x]          ; eax contains the x-coordinate of the top-left corner of the cell
+    add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
+
+    mov eax, [@@color]
     xor edx, edx    
     @@verticalLoop:
-        mov ecx, CELLDIMENSION
+        mov ecx, [@@width]
 
         @@horizontalLoop:
             mov [framebuffer + ebx + ecx - 1], al
@@ -91,12 +155,12 @@ proc drawCell
 
         inc edx
         add ebx, SCREENWIDTH        ; add screenwidth to ebx (offset) to jump to the leftmost pixel at the next line
-        cmp edx, CELLDIMENSION
+        cmp edx, [@@height]
         jl @@verticalLoop
 
     ret
+endp drawRectangle
 
-endp drawCell
 
 proc determineCellColor
     arg @@x:dword, @@y:dword
@@ -113,7 +177,7 @@ proc determineCellColor
     jne @@checkprevSelectedCell
     xor eax, eax
     mov al, 78h
-    jmp @@return
+    jmp SHORT @@return
 
     @@checkprevSelectedCell:
         ; When the current cell is a previously selected cell (source of a piece move).
@@ -358,7 +422,7 @@ proc isPathEmpty
         mov ebx, eax
         call getSmallestValue, [@@startX], [@@endX]
         inc eax             ; Since the first cell contains the piece we are trying to move, we must exclude this cell from the check because it will never be empty.
-        jmp @@check
+        jmp SHORT @@check
     @@prepareVertical:
         mov [@@pathType], 1
         call getAbsoluteDifference, [@@startY], [@@endY]
@@ -483,7 +547,7 @@ proc checkPawnMove
         je @@pawnTestX
         cmp ebx, 2
         je @@pawnTestFirstMove
-        jmp @@notPossible
+        jmp SHORT @@notPossible
     @@pawnTestFirstMove:
         call getAbsoluteDifference, [@@pieceX], [@@destinationX]
         cmp eax, 0
@@ -693,8 +757,8 @@ proc calculatePossibleMove
         @@typeRook:
             call checkRookMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
             cmp eax, 0
-            je @@notPossible
-            jmp @@possible
+            je SHORT @@notPossible
+            jmp SHORT @@possible
 
         @@typeKnight:
             call checkKnightMove, [@@pieceX], [@@pieceY], [@@destinationX], [@@destinationY]
@@ -1194,6 +1258,9 @@ proc drawCharacter
     mul ebx
     add eax, offset asciiArray
 
+    ; Clearing the backgrond
+    call drawRectangle, [@@xPixel], [@@yPixel], CHAR_WIDTH, CHAR_HEIGHT, 00h
+
     ; Drawing the character
     call drawBitmap, eax, [@@xPixel], [@@yPixel], CHAR_WIDTH, CHAR_FULL_SIZE, [@@color]
     
@@ -1205,7 +1272,7 @@ proc getTime
 
     mov ah, 2Ch
     int 21h             ; Interrupt to get system time
-
+    push edx            ; Push seconds to stack
     mov ebx, 60
 
     movzx eax, ch       ; Hours to eax, converting to seconds
@@ -1215,33 +1282,86 @@ proc getTime
 
     movzx eax, cl       ; Minutes to eax, converting to seconds
     mul ebx
-    
-    movzx ebx, dh
-    add eax, ebx        ; Add seconds to the seconds of the minutes
     pop ebx             ; Pop the seconds of the hours
-    add eax, ebx        ; Add seconds of the hours to the seconds of the minutes and seconds
+    add eax, ebx        ; Add seconds of the hours to the seconds of the minutes
+
+    pop edx             ; Pop the seconds of the stack
+    movzx ebx, dh       
+    add eax, ebx        ; Add seconds of the original time to the calculated seconds from hours and minutes
 
     ; Total seconds since midnight now obtained in eax
 
     ret
 endp getTime
 
+proc writeNumberToAsciiBuffer
+    arg @@number:dword, @@size:dword, @@dataBuffer:dword
+    uses eax, ecx, edx, ebx, edi
+
+    mov ecx, 0
+    mov edi, [@@dataBuffer]
+    add edi, [@@size]
+    dec edi                 ; edi now points to the last character of the buffer
+    @@writeDigit:
+        cmp ecx, [@@size]
+        je @@return
+        inc ecx
+        mov ebx, 10
+        mov eax, [@@number]
+        xor edx, edx
+        div ebx             ; Digit to be written is in edx (remainder of division!)
+        mov [@@number], eax
+        add edx, 48         ; Convert digit to ascii
+        mov [edi], dl       ; Write digit to buffer
+        dec edi
+        jmp @@writeDigit
+    
+    @@return:
+    ret
+
+endp writeNumberToAsciiBuffer
 
 proc secondsToTimeStamp
     arg @@seconds:dword, @@dataBuffer:dword
-    local @@hours:dword, @@minutes:dword, @@seconds:dword
+    uses eax, ebx, edx, edi
 
     mov eax, [@@seconds]
-    mov ebx, 60             
+    mov ebx, 60     
+    xor edx, edx        
     div ebx                 ; Dividing seconds by 60
-    mov [@@seconds], edx    ;   => minutes in eax, seconds in edx
-    div ebx                 ; Dividing minutes by 60
-    mov [@@minutes], edx    ;   => hours in eax, minutes in edx
-    mov [@@hours], eax
+                            ;   => minutes in eax, seconds in edx
 
-
-
+    mov edi, [@@dataBuffer]
+    call writeNumberToAsciiBuffer, eax, 2, edi
+    add edi, 2
+    mov [byte ptr edi], ':'
+    inc edi
+    call writeNumberToAsciiBuffer, edx, 2, edi
+    
+    ret
 endp secondsToTimeStamp
+
+proc updateTimers
+    uses eax, ebx
+    mov ebx, [startTime]
+    call getTime
+    sub eax, ebx
+    call secondsToTimeStamp, eax, offset whiteTimerText
+    call drawString, offset whiteTimerText, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
+    call transferFrame
+    ret
+endp updateTimers
+
+proc initializeTimers
+    uses eax, ebx
+    
+    call getTime
+    mov ebx, offset startTime
+    mov [ebx], eax
+    call secondsToTimeStamp, 0, offset whiteTimerText
+    call drawString, offset whiteTimerText, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
+    ret
+endp initializeTimers
 
 ; ----------------------------------------------------------------------------
 ; Mouse function
@@ -1320,9 +1440,9 @@ proc main
 
     ; DUMMY TEXT
     call drawCharacter, 'B', FIELDDIMENSION, 0, 0Fh
-    call drawString, offset testString, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
-    call drawString, offset testString, FIELDDIMENSION, ebx, 0Fh
+    ;call drawString, offset testString, FIELDDIMENSION, (FIELDDIMENSION / 2), 0Fh
 
+    call initializeTimers
     call transferFrame
 
     ; TEST CASE
@@ -1340,7 +1460,7 @@ proc main
     ;call selectCell, eax, ebx
     
     @@animation_loop:
-        
+        call updateTimers
         ; If the ESC key is pressed, the program is terminated.
         xor al, al
         mov	ah, 01h
@@ -1396,7 +1516,7 @@ DATASEG
     ;fontarray db FONTFILE_SIZE dup (?)
     
 
-    asciiFileName db "bitmaps/5x7.bin", 0
+    asciiFileName db "bitmaps/5x5.bin", 0
     pionFileName db "bitmaps/pawn.bin", 0
     kingFileName db "bitmaps/king.bin", 0
     queenFileName db "bitmaps/queen.bin", 0
@@ -1412,8 +1532,13 @@ DATASEG
     whitePieceColor db 0Fh
     blackPieceColor db 00h
 
-    whiteTimer db "00:00:00", 0
-    blackTimer db "00:00:00", 0
+    startTime dd 0
+
+    whiteTimer dd (60 * 10)
+    blackTimer dd (60 * 10)
+
+    whiteTimerText db "00:00", 0
+    blackTimerText db "00:00", 0
 
     lastMouseX dd 0
     lastMouseY dd 0
@@ -1427,7 +1552,7 @@ DATASEG
 
     currentTurn db 1
 
-    testString db "DIT IS TEKST", 0
+    testString db "0123456789", 0
 
 UDATASEG
 

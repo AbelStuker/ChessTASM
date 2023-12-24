@@ -7,7 +7,7 @@
 #define AUXCODE_GENERATE_ASCII_BITMAP_H
 
 #define FONT_WIDTH 5
-#define FONT_HEIGHT 7
+#define FONT_HEIGHT 5
 #define FONT_SIZE (FONT_WIDTH * FONT_HEIGHT)
 #define FONT_BYTES ((int) ceil((float) FONT_SIZE / 8))
 

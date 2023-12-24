@@ -7,7 +7,7 @@ int main() {
     scanf("%s", foldername);
     // Unsafe, we know, but don't care for now :)
 
-    while 1
+    while (1)
     {
         char input[1000]; // Maximum length of the input string
         char filename[11];
@@ -20,10 +20,10 @@ int main() {
 
         strcat(relative_file_path, foldername);
         strcat(relative_file_path, "/");
-        strcat(relative_fiel_path, strcat(filename, ".bin"));
+        strcat(relative_file_path, strcat(filename, ".bin"));
 
         FILE *outputFile;
-        outputFile = fopen(relative_fiel_path, "wb"); // Open the file for writing in binary mode
+        outputFile = fopen(relative_file_path, "wb"); // Open the file for writing in binary mode
 
         if (outputFile == NULL) {
             printf("Error opening file for writing.\n");
