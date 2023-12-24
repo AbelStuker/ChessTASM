@@ -1154,7 +1154,6 @@ proc selectCell
         ret
 endp selectCell
 
-
 proc drawString
     arg @@string:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword
 
@@ -1201,6 +1200,48 @@ proc drawCharacter
     ret
 endp drawCharacter
 
+proc getTime
+    uses ebx, edx
+
+    mov ah, 2Ch
+    int 21h             ; Interrupt to get system time
+
+    mov ebx, 60
+
+    movzx eax, ch       ; Hours to eax, converting to seconds
+    mul ebx
+    mul ebx
+    push eax
+
+    movzx eax, cl       ; Minutes to eax, converting to seconds
+    mul ebx
+    
+    movzx ebx, dh
+    add eax, ebx        ; Add seconds to the seconds of the minutes
+    pop ebx             ; Pop the seconds of the hours
+    add eax, ebx        ; Add seconds of the hours to the seconds of the minutes and seconds
+
+    ; Total seconds since midnight now obtained in eax
+
+    ret
+endp getTime
+
+
+proc secondsToTimeStamp
+    arg @@seconds:dword, @@dataBuffer:dword
+    local @@hours:dword, @@minutes:dword, @@seconds:dword
+
+    mov eax, [@@seconds]
+    mov ebx, 60             
+    div ebx                 ; Dividing seconds by 60
+    mov [@@seconds], edx    ;   => minutes in eax, seconds in edx
+    div ebx                 ; Dividing minutes by 60
+    mov [@@minutes], edx    ;   => hours in eax, minutes in edx
+    mov [@@hours], eax
+
+
+
+endp secondsToTimeStamp
 
 ; ----------------------------------------------------------------------------
 ; Mouse function
@@ -1245,6 +1286,16 @@ proc main
 
 	push ds
 	pop	es 
+
+    mov ah, 02h
+    int 1ah
+
+    mov ah, 02h
+    int 1ah
+
+    mov ah, 02h
+    int 1ah
+
 
 	; set video mode, init registers
     call setupVideo
@@ -1345,7 +1396,7 @@ DATASEG
     ;fontarray db FONTFILE_SIZE dup (?)
     
 
-    asciiFileName db "bitmaps/font.bin", 0
+    asciiFileName db "bitmaps/5x7.bin", 0
     pionFileName db "bitmaps/pawn.bin", 0
     kingFileName db "bitmaps/king.bin", 0
     queenFileName db "bitmaps/queen.bin", 0
@@ -1360,6 +1411,9 @@ DATASEG
 
     whitePieceColor db 0Fh
     blackPieceColor db 00h
+
+    whiteTimer db "00:00:00", 0
+    blackTimer db "00:00:00", 0
 
     lastMouseX dd 0
     lastMouseY dd 0
