@@ -53,49 +53,10 @@ proc drawBoard
         jl @@drawRow
 
     call drawPieces
+
     ret
     
 endp drawBoard
-
-;proc drawCell
-;    uses eax, edx, ecx
-;    arg @@x:dword, @@y:dword
-
-    ; Calculate the offset of the top-left corner pixel of the cell.
-    ; The offset is calculated by multiplying the y-coordinate with the celldimension to obtain the pixel y-coordinate.
-    ; Then, the pixel y-coordinate is multiplied with the screenwidth to obtain the offset of the first pixel of the line containing the top-left corner of the cell.
-    ; After that, the x-coordinate is multiplied with the celldimension to obtain the pixel x-coordinate.
-    ; Lastly, the pixel x-corodinate is added to the offset of the first pixel of the line.
-    ; We now have the offset of the top-left corner pixel of the cell.
-;    mov eax, [@@y]
-;    mov edx, CELLDIMENSION
-;    mul edx 
-;    mov edx, SCREENWIDTH
-;    mul edx                 
-;    mov ebx, eax            ; ebx contains offset of first pixel of the line containing the top-left corner of the cell
-;    mov eax, [@@x] 
-;    mov edx, CELLDIMENSION
-;    mul edx                 ; eax contains the x-coordinate of the top-left corner of the cell
-;    add ebx, eax            ; (ebx = ebx + eax) containing the offset off the top-left corner pixel of the cell
-    
-;    call determineCellColor, [@@x], [@@y]     ; The color of the cell is obtained in eax.
-
-;    xor edx, edx    
-;    @@verticalLoop:
-;        mov ecx, CELLDIMENSION;
-
-;        @@horizontalLoop:
-;            mov [framebuffer + ebx + ecx - 1], al
-;            loop @@horizontalLoop
-
-;        inc edx
-;        add ebx, SCREENWIDTH        ; add screenwidth to ebx (offset) to jump to the leftmost pixel at the next line
-;        cmp edx, CELLDIMENSION
-;        jl @@verticalLoop
-
-;    ret
-
-;endp drawCell
 
 
 proc drawCell
@@ -643,6 +604,300 @@ proc isEnPassantCell
 
 endp isEnPassantCell
 
+proc requestPawnPromotionSelection
+    arg @@x:dword, @@y:dword
+    uses edi, ebx, edx, ecx, eax
+
+    ; The provided x- and y-coordinates are grid-coordinates. We need to convert them to the left-most top of the menu that will be shown.
+    ;   The x-coordinate will be the left-most top of the cell right to the provided cell.
+    ;   The x-coordinate will depend on whether the cell resides at the bottom of the field or not (to prevent the menu from overflowing at the bottom).
+    mov eax, [@@x]
+    inc eax
+    mov ebx, CELLDIMENSION
+    mul ebx
+    mov [@@x], eax
+    mov ebx, CELLDIMENSION
+    mov eax, [@@y]
+    cmp eax, 5
+    jge @@bottomRank
+    mul ebx
+    mov [@@y], eax
+    jmp @@drawMenu
+    @@bottomRank:
+    inc eax
+    mul ebx
+    sub eax, (4 * TEXT_HEIGHT)
+    mov [@@y], eax
+
+    
+    @@drawMenu:
+    mov [ppMenuVisible], 1
+    lea edi, [dword ptr ppButtons]
+    mov ecx, [@@x]
+    mov ebx, [@@y]
+    movzx eax, [pawnPromotionString]
+    ;call getStringDimensions, eax
+    @@ppButtonDrawLoop:
+        mov edx, [dword ptr edi]    ; address of the button in eax
+        cmp edx, 0
+        je @@return
+        call makeButton, edx, ecx, ebx
+        add edi, 4
+        jmp @@ppButtonDrawLoop
+    
+   
+    @@return:
+    ret
+endp requestPawnPromotionSelection
+
+proc executePawnPromotion
+    arg @@pieceType:dword
+    uses eax, ebx, edi
+
+    mov edi, [ppPieceAddress]
+    mov ax, [word ptr edi]
+    mov ebx, [@@pieceType]
+    cmp bl, 0
+    je @@queen
+    cmp bl, 1
+    je @@bishop
+    cmp bl, 2
+    je @@knight
+    cmp bl, 3
+    je @@rook
+    
+    @@queen:
+        mov bx, 1110b
+        jmp @@setPiece
+    @@bishop:
+        mov bx, 1100b
+        jmp @@setPiece
+    @@knight:
+        mov bx, 1010b
+        jmp @@setPiece
+    @@rook:
+        mov bx, 1000b
+
+    @@setPiece:
+    ; Updating the position of the piece.
+    and ax, 110000111111b
+    shl bx, 6          ; Shift 6 bits to fit in the type spot
+    or ax, bx
+
+    mov [word ptr edi], ax
+    ret
+endp executePawnPromotion
+
+proc makeButton
+    arg @@buttonAddress:dword, @@x:dword, @@y:dword
+    uses edi, ecx
+    mov edi, [@@buttonAddress]
+    mov eax, [@@x]
+    mov [edi], eax
+    add edi, 4
+    mov eax, [@@y]
+    mov [edi], eax
+    add edi, 12
+    mov eax, [dword ptr edi]
+    call getStringDimensions, eax
+    sub edi, 4
+    mov [edi], ebx
+    sub edi, 4
+    mov [edi], eax
+    add [@@x], eax
+    add [@@y], ebx
+    mov eax, [@@x]
+    mov ebx, [@@y]
+    ret
+endp makeButton
+
+proc getButtonCoordinates
+    arg @@button:dword
+    uses edi
+
+    mov edi, [@@button]
+    mov eax, [dword ptr edi]
+    add edi, 4
+    mov ebx, [dword ptr edi]
+    ret
+endp getButtonCoordinates
+
+proc getButtonDimensions
+    arg @@button:dword
+    uses edi
+
+    mov edi, [@@button]
+    add edi, 8
+    mov eax, [dword ptr edi]
+    add edi, 4
+    mov ebx, [dword ptr edi]
+    ret
+endp getButtonDimensions
+
+proc getButtonProcedure
+    arg @@button:dword
+    uses edi
+
+    mov edi, [@@button]
+    add edi, 20
+    mov eax, [dword ptr edi]
+    ret
+endp getButtonProcedure
+
+
+proc drawButton
+    arg @@buttonAddress:dword, @@selected:byte
+    uses eax, ebx, edx, edi, ecx
+    
+    mov edi, [@@buttonAddress]
+    call getButtonCoordinates, edi
+    push eax
+    push ebx
+    add edi, 16
+    mov edx, [dword ptr edi]
+
+    cmp [@@selected], 0
+    je @@notSelected
+    movzx ecx, [selectedColor]
+    call drawString, edx, eax, ebx, 0Fh, ecx
+    jmp @@drawBorder
+    @@notSelected:
+        call drawString, edx, eax, ebx, 0Fh, 0FFh
+    
+    @@drawBorder:
+        pop ecx
+        pop edx
+        sub eax, edx
+        sub ebx, ecx
+        ;call drawRectangle, edx, ecx, eax, 1, 1ah
+        ;call drawRectangle, edx, ecx, 1, ebx, 1ah
+
+
+    @@return:
+    ret
+endp drawButton
+
+proc drawPawnPromotionMenu
+    local @@x:dword, @@y:dword
+    uses eax, ebx, edx, edi, ecx
+
+    mov eax, [lastMouseX]
+    mov ebx, [lastMouseY]
+    mov [@@x], eax
+    mov [@@y], ebx
+
+    ; call drawString, offset pawnPromotionString, eax, ebx, 0FFh, 0Fh
+
+    cmp [ppMenuVisible], 0
+    je @@return
+    lea edi, [dword ptr ppButtons]
+    xor ecx, ecx
+    @@buttonLoop:
+        mov edx, [dword ptr edi]
+        cmp edx, 0
+        je @@return
+        push [@@x]
+        push [@@y] 
+        call getButtonCoordinates, edx
+        cmp [@@x], eax
+        jl @@notSelected
+        cmp [@@y], ebx
+        jl @@notSelected
+        sub [@@x], eax
+        sub [@@y], ebx
+        call getButtonDimensions, edx
+        cmp [@@x], eax
+        jge @@notSelected
+        cmp [@@y], ebx
+        jge @@notSelected
+        call drawButton, edx, 1
+        jmp @@nextButton
+
+        @@notSelected:
+            call drawButton, edx, 0
+
+        @@nextButton:
+            inc ecx
+            pop [@@y] 
+            pop [@@x]
+            add edi, 4
+            jmp @@buttonLoop
+   
+
+    @@return:
+    ret
+endp drawPawnPromotionMenu
+
+
+proc selectButton
+    arg @@x:dword, @@y:dword
+    uses eax, ebx, edx, edi, ecx
+
+    cmp [ppMenuVisible], 0
+    je @@noSelection
+    lea edi, [dword ptr ppButtons]
+    xor ecx, ecx
+    @@buttonLoop:
+        mov edx, [dword ptr edi]
+        cmp edx, 0
+        je @@noSelection
+        push [@@x]
+        push [@@y] 
+        call getButtonCoordinates, edx
+        cmp [@@x], eax
+        jl @@nextButton
+        cmp [@@y], ebx
+        jl @@nextButton
+        sub [@@x], eax
+        sub [@@y], ebx
+        call getButtonDimensions, edx
+        cmp [@@x], eax
+        jge @@nextButton
+        cmp [@@y], ebx
+        jge @@nextButton
+        mov [ppMenuVisible], 0
+        ;call getButtonProcedure, edx
+        ;call eax
+        call executePawnPromotion, ecx
+        mov eax, 1
+        jmp @@return
+
+        @@nextButton:
+            inc ecx
+            pop [@@y] 
+            pop [@@x]
+            add edi, 4
+            jmp @@buttonLoop
+        
+        @@noSelection:
+            mov eax, 0
+   
+    @@return:
+        ret
+endp selectButton
+
+
+
+;proc pawnPromoteQueen
+;    call executePawnPromotion, 0
+;    ret
+;endp pawnPromoteQueen;
+
+;proc pawnPromoteBishop
+;    call executePawnPromotion, 1
+;    ret
+;endp pawnPromoteBishop
+
+;proc pawnPromoteKnight
+;    call executePawnPromotion, 2
+;    ret
+;endp pawnPromoteKnight
+
+;proc pawnPromoteRook
+;    call executePawnPromotion, 3
+;    ret
+;endp pawnPromoteRook
+
 ;; Procedures to check moves of individual piece types.
 proc checkPawnMove
     arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword, @@destinationOccupation:dword, @@player:byte
@@ -674,12 +929,12 @@ proc checkPawnMove
         jmp @@pawnTestFirstMoveWhite
         @@pawnTestFirstMoveBlack:
             cmp [@@pieceY], 6
-            jne @@notPossible
+            jne SHORT @@notPossible
             call setEnPassantCell, [@@destinationX], [@@destinationY], 0
-            jmp @@possible
+            jmp SHORT @@possible
         @@pawnTestFirstMoveWhite:
             cmp [@@pieceY], 1
-            jne @@notPossible
+            jne SHORT @@notPossible
             call setEnPassantCell, [@@destinationX], [@@destinationY], 1
             jmp @@possible
     @@pawnTestX:
@@ -940,9 +1195,9 @@ proc movePiece
     uses eax, ebx, edx, edi
     mov edi, [@@pieceAddress]
     movzx eax, [word ptr edi]
-    call calculatePossibleMove, eax, [@@x], [@@y]
+    call calculatePossibleMove, eax, [@@x], [@@y]   ; returns decoded piece in eax
     cmp eax, 0
-    je @@return
+    je @@notPossible
     push eax
 
     ; If the destination contains a piece, we must remove it (since it is killed).
@@ -993,7 +1248,10 @@ proc movePiece
         mov [word ptr edi], ax
 
         ; Changing the turn of the player.
-        call changeCurrentTurn
+        ; call changeCurrentTurn        TODO ENABLE AGAIN!!
+        jmp @@return
+    @@notPossible:
+        mov [ppMenuVisible], 0
     @@return:
         ret
 endp movePiece
@@ -1141,7 +1399,7 @@ proc findPieceAddress
     @@found:
         call aliveFromEncPiece, edx
         cmp eax, 0
-        je @@notFound
+        je @@next
         mov eax, edi
         jmp @@return
     @@notFound:
@@ -1338,75 +1596,82 @@ proc selectedPiece
         ret
 endp selectedPiece
 
+
+
 proc selectCell
-    arg @@xPixel:dword , @@yPixel:dword
-    uses eax, ebx, edx, ecx
+    arg @@x:dword , @@y:dword
+    local @@destPiece:dword
+    uses eax, ebx, edx
 
     cmp [winner], 2         ; If the game has ended, we do not want to select any cells.
     jne @@return
 
-    call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; Returns the grid x-coordinate in eax and the grid y-coordinate in ebx
-    push ebx
-    push eax
+    call gridCoordinateFromPixelCoordinate, [@@x], [@@y]      ; Returns the grid x-coordinate in eax and the grid y-coordinate in ebx
+    mov [@@x], eax
+    mov [@@y], ebx
     ; If the destination cell does not contain a piece of the same player, we may want the currently selected piece (if any) to move to this cell.
     call findPieceAddress, eax, ebx     ; Returns the address of the piece at the destination cell in eax. If no piece is found, eax is set to 0.
-    push eax                            ; We push this onto the stack since we may need it later in movePiece to remove the piece.
+    mov [@@destPiece], eax
     cmp eax, 0
-    je @@destinationSelection
+    je @@destinationSelection           
     ; If the destination cell contains a piece, we may want to select this piece if it belongs to the current player.
     ; If it belongs to the other player, we try to move the currently selected piece (if any) to this cell.
     mov eax, [eax]
     call playerFromEncPiece, eax        ; Returns the player (0 or 1) in al
     cmp al, [currentTurn]               ; If the piece in the destination cell ...
-    jne @@destinationSelection          ;   ... belongs to the other player, we try to move the currently selected piece (if any) to this cell.
-    pop ebx ; thrown away 
-    pop eax
-    pop ebx
+    jne @@destinationSelection          ;   ... belongs to the other player, we try to move the currently selected piece (if any) to this cell and to kill it.
+    mov eax, [@@x]
+    mov ebx, [@@y]
     mov [selectedCellX], al             ;   ... belongs to the current player, we select this piece.
     mov [selectedCellY], bl
-    ;mov [prevSelectedCellX], 8          ; The source of the previous piece movement is no longer relevant.
-    ;mov [prevSelectedCellY], 8          ;
+    ;mov [prevSelectedCellX], 8         ; The source of the previous piece movement is no longer relevant.
+    ;mov [prevSelectedCellY], 8         ;
     jmp @@return
 
-    ; ----- currently not used -----
-    @@unselect:
-        pop eax ; thrown away
-        pop eax
-        pop eax
-        mov [selectedCellX], 8
-        mov [selectedCellY], 8
-        jmp @@return
-    ; ------------------------------
 
     @@destinationSelection:
-        call selectedPiece          ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
-        cmp eax, 0                  ; If no piece is selected, we do nothing.
-        je @@return
-        mov edx, eax                ; If a piece is selected, it will be moved to the destination cell when possible.
-        pop ecx                     ; Popping from stack:   ecx = address of destination piece (can be 0 if no piece is present)
-        cmp ecx, 0
-        jne @@continue              ; If the destination cell is occupied, we must not check for en passant.
-        call typeFromEncPiece, edx  ; Type of the piece in al
+
+        ; Get currently selected piece (if any)
+        call selectedPiece              ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
+        cmp eax, 0                      ; If no piece is selected, we do nothing.
+        je SHORT @@return
+        mov edx, eax                    ; If a piece is selected, it will be moved to the destination cell when possible.
+
+        ; Get the type of the selected piece
+        mov eax, [edx]
+        call typeFromEncPiece, eax      ; Type of the piece in al
         cmp al, 7
-        jge @@continue              ; When the currently selected piece is not a rook, we can not have en passant, nor pawn promotion.
-        pop eax                     ; Popping from stack:   ebx = y-coordinate of the source piece
-        pop ebx                     ;                       eax = x-coorindate of the source piece
-        push ebx                    ; Push them again to the stack because the isEnPassantCell procedure will return values in these registers.
-        push eax                    ;
-        call isEnPassantCell, eax, ebx  ; ebx = y-coordinate of the en passant piece cell
-        cmp eax, 0                  ; eax = en passant possible (0 = no, 1 = yes)
-        je @@continue
-        pop eax
-        push eax                    ; Push again on the stack because the findPieceAddress procedure will a value in eax and we need 
-        call findPieceAddress, eax, ebx ; Using the y-coordinate returned by the isEnPassantCell procedure (to find the piece to kill).
-        cmp eax, 0                  ; Is not supposed to happen.
-        je @@continue
-        mov ecx, eax                ; edx = address of the piece to kill
-     
+        jg @@continue                  ; When the currently selected piece is not a pawn, we can not have en passant, nor pawn promotion.
+
+        ; Check if the destination cell is the en passant cell, else check for pawn promotion.
+        cmp [@@destPiece], 0
+        jne @@checkPawnPromotion        ; If the destination cell is occupied, we must not check for en passant.
+        call isEnPassantCell, [@@x], [@@y]
+        cmp eax, 0                      ; eax = en passant possible (0 = no, 1 = yes)
+        je @@checkPawnPromotion
+
+        ; If en passant is possible, we must set the destination piece
+        call findPieceAddress, [@@x], ebx ; Using the y-coordinate returned by the isEnPassantCell procedure (to find the piece to kill).
+        cmp eax, 0                      ; Is not supposed to happen.
+        je @@checkPawnPromotion
+        mov [@@destPiece], eax          ; edx = address of the piece to kill
+        jmp @@continue
+
+        @@checkPawnPromotion:
+        ; When checking for pawn promotion, we must check if the pawn is at the first or last rank.
+        ; Since the pawn can only move forward, we can safely check the first and last rank without differentiating between black and white pawns.
+        cmp [@@y], 2    ;; TODO: CHANGE TO 0 AGAIN, 2 WAS FOR TESTING EASILY
+        je @@pawnPromotionPossible
+        cmp [@@y], 4
+        jne @@continue
+        @@pawnPromotionPossible:
+
+            mov [ppPieceAddress], edx
+            call requestPawnPromotionSelection, [@@x], [@@y]    ; Returns the index of the selected pawn promotion piece index of the selection menu.
+            ;call executePawnPromotion, [@@destPiece], eax       ; Turn the piece into the selected promoted piece.
+
         @@continue:
-        pop eax
-        pop ebx
-        call movePiece, edx, eax, ebx, ecx
+        call movePiece, edx, [@@x], [@@y], [@@destPiece]
 
     @@return:
         call drawBoard
@@ -1415,7 +1680,8 @@ endp selectCell
 
 proc drawString
     arg @@string:dword, @@xPixel:dword, @@yPixel:dword, @@color:dword, @@backgroundColor:dword
-
+    uses edx
+    
     ; To fill the padding of the top and bottom at the end, we need to know the initial x- and y-coordinates.
     push [@@yPixel]
     push [@@xPixel]
@@ -1455,6 +1721,25 @@ proc drawString
         ret
 
 endp drawString
+
+proc getStringDimensions
+    arg @@string:dword
+    uses ecx
+    mov eax, [@@string]
+    mov ecx, (2 * CHAR_PADDING)
+    @@loopString:
+        movzx ebx, [byte ptr eax]
+        cmp ebx, 0
+        je @@return
+        add ecx, CHAR_WIDTH
+        add ecx, CHAR_SPACING
+        inc eax
+        jmp @@loopString
+    @@return:
+    mov eax, ecx
+    mov ebx, TEXT_HEIGHT
+    ret
+endp getStringDimensions
 
 
 proc drawCharacter
@@ -1576,13 +1861,13 @@ proc updateTimers
     pop ebx                         ; ebx = time left when current turn started
     sub ebx, eax                    ; ebx = time left
     pop eax                         ; eax = address of timer
-    mov [eax], ebx
+    mov [dword ptr eax], ebx
     cmp ebx, 0
     jle @@lost
     jmp @@drawTimeStamp
 
     @@lost:
-        mov [eax], 0            ; Making sure the value is set zero and not to a negative value.
+        mov [dword ptr eax], 0            ; Making sure the value is set zero and not to a negative value.
         mov dl, [currentTurn]
         xor dl, 1
         mov [winner], dl        ; The opponent is the winner
@@ -1688,14 +1973,28 @@ proc mouseHandler
     movzx edx, dx
     mov [lastMouseX], ecx
     mov [lastMouseY], edx
-    
-    ; We check if the left mouse button is pressed. If this is the case, we update the selected cell.
+
+
+    ; We check if the left mouse button is pressed.
     and bl, 3
-    jz @@return
+    jz @@draw
+    call selectButton, ecx, edx
+    cmp eax, 1      ; eax is 1 if a button was pressed
+    je @@draw
+    movzx ebx, [ppMenuVisible]
+    cmp ebx, 0
+    jne @@draw
     call selectCell, ecx, edx
 
-    @@return:
+    @@draw:
+        movzx ebx, [ppMenuVisible]
+        cmp ebx, 0
+        jne @@drawPawnPromotionMenu
         call drawBoard
+
+    @@drawPawnPromotionMenu:
+        call drawPawnPromotionMenu
+        
         call transferFrame
         ret
 endp mouseHandler
@@ -1742,18 +2041,47 @@ proc main
     call transferFrame
 
     ; TEST CASE
-    mov eax, (24 * 2) + 5
-    mov ebx, (24 * 6) + 5
-    call selectCell, eax, ebx
-    mov eax, (24 * 2) + 5
-    mov ebx, (24 * 4) + 5
-    call selectCell, eax, ebx
-    mov eax, (24 * 3) + 5
-    mov ebx, (24 * 4) + 5
-    call selectCell, eax, ebx
-    mov eax, (24 * 2) + 5
-    mov ebx, (24 * 5) + 5
-    call selectCell, eax, ebx
+; 
+    ;mov eax, (24 * 4) + 19
+    ;mov ebx, (24 * 5) + 5
+    ;mov [lastMouseX], eax
+    ;mov [lastMouseY], ebx
+    ;call selectCell, eax, ebx
+    ;call drawBoard
+    ;call drawPawnPromotionMenu;
+
+    ;mov eax, (24 * 3) + 19
+    ;mov ebx, (24 * 4) + 5
+    ;mov [lastMouseX], eax
+    ;mov [lastMouseY], ebx
+    ;call selectCell, eax, ebx
+    ;call drawBoard
+   ; call drawPawnPromotionMenu
+
+    ;mov eax, (24 * 3) + 19
+    ;mov ebx, (24 * 4) + 5
+    ;mov [lastMouseX], eax
+    ;mov [lastMouseY], ebx
+    ;call selectCell, eax, ebx
+
+    ;mov eax, (24 * 1) + 19
+    ;mov ebx, (24 * 2) + 5
+    ;mov [lastMouseX], eax
+    ;mov [lastMouseY], ebx
+    ;call selectButton, eax, ebx
+    ;call drawBoard
+    ;call drawPawnPromotionMenu
+    ;call drawPawnPromotionMenu
+;call selectCell, eax, ebx
+    ;mov eax, (24 * 5) + 5
+    ;mov ebx, (24 * 2) + 5
+    ;call selectCell, eax, ebx
+    ;mov eax, (24 * 3) + 5
+    ;mov ebx, (24 * 4) + 5
+    ;call selectCell, eax, ebx
+    ;mov eax, (24 * 2) + 5
+    ;mov ebx, (24 * 5) + 5
+    ;call selectCell, eax, ebx
     ;mov eax, 5
     ;mov ebx, 5
     ;call selectCell, eax, ebx
@@ -1808,10 +2136,14 @@ DATASEG
     ; (4):  X-COORDINATE
     ; (5):  Y-COORDINATE
     
+    ;pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
+    ;        dw 100000000001b, 100001001001b, 100010010001b, 100011011001b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
+    ;        dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
+    ;        dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
     pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
             dw 100000000001b, 100001001001b, 100010010001b, 100011011100b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
             dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
-            dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
+            dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100101b, 110101101110b, 110110110110b, 110111111110b
 
 
     ; When a player makes a move that opens the possibility of an en passant capture, the en passant state is modified.
@@ -1839,7 +2171,7 @@ DATASEG
     knightFileName db "bitmaps/knight.bin", 0
     rookFileName db "bitmaps/rook.bin", 0
 
-    turnColor db 03h
+    turnColor db 36h
     whiteColor db 42h
     blackColor db 06h
     whitePieceColor db 0Fh
@@ -1848,6 +2180,7 @@ DATASEG
     prevSourceColor db 76h
     prevDestinationColor db 78h
     winnerColor db 02h
+    buttonBorderColor db 1ah
 
     startTime dd 0
     whiteLastTime dd PLAY_TIME
@@ -1873,6 +2206,8 @@ DATASEG
     currentTurn db 1
     winner db 2        ; 2 = undecided, 0 = white, 1 = black
 
+    emptryString db 0
+
     whiteString db "WHITE", 0
     blackString db "BLACK", 0
     turnString db "->", 0
@@ -1880,7 +2215,29 @@ DATASEG
     wonString db "WON", 0
     lostString db "LOST", 0
 
-    emptryString db 0
+    queenString db "QUEEN", 0
+    bishopString db "BISHOP", 0
+    knightString db "KNIGHT", 0
+    rookString db "ROOK", 0
+
+    pawnPromotionString db "PROMOTE PAWN", 0
+    ppPieceAddress dd 0
+    ppMenuVisible db 0
+    ppButtons dd offset ppQueenButton, offset ppBishopButton, offset ppKnightButton, offset ppRookButton, 0
+    ; Every button stores the following information (each in a dword)
+    ; - x-coordinate of the top left corner of the button
+    ; - y-coordinate of the top left corner of the button
+    ; - width of the button
+    ; - height of the button
+    ; - address of the string to be displayed on the button
+    ; Note that the x, y, width and height will be set when drawing the buttons.
+    ppQueenButton dd 0, 0, 0, 0, offset queenString, 0; offset pawnPromoteQueen
+    ppBishopButton dd 0, 0, 0, 0, offset bishopString, 0; offset pawnPromoteBishop
+    ppKnightButton dd 0, 0, 0, 0, offset knightString, 0; offset pawnPromoteKnight
+    ppRookButton dd 0, 0, 0, 0, offset rookString, 0; offset pawnPromoteRook
+
+
+
 
 UDATASEG
 
