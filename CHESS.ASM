@@ -876,6 +876,14 @@ proc killPiece
     movzx eax, [word ptr edi]
     and eax, 011111111111b
     mov [word ptr edi], ax
+
+    call typeFromEncPiece, eax
+    cmp al, 15
+    jne @@return
+    mov al, [currentTurn]
+    mov [winner], al
+    
+    @@return:
     ret
 endp killPiece
 
