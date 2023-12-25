@@ -169,40 +169,56 @@ proc determineCellColor
     mov eax, [@@x]
     movzx ecx, [selectedCellX]
     cmp eax, ecx
-    jne @@checkprevSelectedCell
+    jne @@checkMouseHover
     mov eax, [@@y]
     movzx ecx, [selectedCellY]
     cmp eax, ecx
-    jne @@checkprevSelectedCell
+    jne @@checkMouseHover
     xor eax, eax
-    mov al, 78h
-    jmp SHORT @@return
+    mov al, [selectedColor]
+    jmp @@return
 
-    @@checkprevSelectedCell:
-        ; When the current cell is a previously selected cell (source of a piece move).
-        mov eax, [@@x]
-        movzx ecx, [prevSelectedCellX]
-        cmp eax, ecx
-        jne @@checkMouseHover
-        mov eax, [@@y]
-        movzx ecx, [prevSelectedCellY]
-        cmp eax, ecx
-        jne @@checkMouseHover
-        xor eax, eax
-        mov al, 75h
-        jmp @@return
+    
 
     @@checkMouseHover:
         ; When the mouse is present in the current cell, the cell must be coloured blue.
         call gridCoordinateFromPixelCoordinate, [lastMouseX], [lastMouseY]  ; Returns the x- and y-coordinate of the cell in which the mouse is in eax and ebx respectively.
         mov edx, [@@x]
         cmp edx, eax
-        jne @@getColor
+        jne @@checkPrevMoveSource
         mov edx, [@@y]
         cmp edx, ebx
-        jne @@getColor
+        jne @@checkPrevMoveSource
         xor eax, eax
         mov al, [turnColor]
+        jmp @@return
+
+    @@checkPrevMoveSource:
+        ; When the current cell is a previous move source cell.
+        mov eax, [@@x]
+        movzx ecx, [prevMoveSourceX]
+        cmp eax, ecx
+        jne @@checkPrevMoveDestination
+        mov eax, [@@y]
+        movzx ecx, [prevMoveSourceY]
+        cmp eax, ecx
+        jne @@checkPrevMoveDestination
+        xor eax, eax
+        mov al, [prevSourceColor]
+        jmp @@return
+
+    @@checkPrevMoveDestination:
+        ; When the current cell is a previous move destination cell.
+        mov eax, [@@x]
+        movzx ecx, [prevMoveDestinationX]
+        cmp eax, ecx
+        jne @@getColor
+        mov eax, [@@y]
+        movzx ecx, [prevMoveDestinationY]
+        cmp eax, ecx
+        jne @@getColor
+        xor eax, eax
+        mov al, [prevDestinationColor]
         jmp @@return
 
     @@getColor:
@@ -554,6 +570,41 @@ proc setEnPassantCell
 
 endp setEnPassantCell
 
+proc getEnPassantCoordinates
+    arg @@enPassantState:dword
+
+    mov ebx, [@@enPassantState]
+    mov eax, ebx
+    shr eax, 5
+    and eax, 111b
+    shr ebx, 2
+    and ebx, 111b
+
+    ret
+endp getEnPassantCoordinates
+
+proc getEnPassantPieceCoordinates
+    arg @@enPassantState:dword
+    uses edx
+
+    mov eax, [@@enPassantState]
+    shr eax, 1
+    and eax, 1
+    mov edx, eax
+    call getEnPassantCoordinates, [@@enPassantState]
+    cmp edx, 0
+    je @@above
+    inc ebx
+    jmp @@return
+    @@above:
+    dec ebx
+
+    @@return:
+    ret
+
+endp getEnPassantPieceCoordinates
+
+    
 proc isEnPassantCell
     arg @@destinationX:dword, @@destinationY:dword
 
@@ -562,16 +613,13 @@ proc isEnPassantCell
     and eax, 1
     cmp eax, 0                      ; If the en passant state is not active, the cell can never be the en passant cell.
     je @@notPossible
-    mov eax, ebx
-    shr eax, 2
-    and eax, 111b                   ; We extract the y-coordinate of the en passant cell
-    cmp eax, [@@destinationY]       ;   and compare it with the y-coordinate of the provided cell.
+    push ebx
+    call getEnPassantCoordinates, ebx   ; Extracting the coordinates of the en passant cell ...
+    cmp ebx, [@@destinationY]           ;   ... and compare it with the y-coordinate of the provided cell.
     jne @@notPossible
-    mov eax, ebx
-    shr eax, 5
-    and eax, 111b                   ; We extract the x-coordinate of the en passant cell
-    cmp eax, [@@destinationX]       ;   and compare it with the x-coordinate of the provided cell.
+    cmp eax, [@@destinationX]           ;   ... and compare it with the x-coordinate of the provided cell.
     jne @@notPossible
+    pop ebx
     mov eax, ebx                    ; When all checks are passed, the provided cell is the enPassantCell.
     shr eax, 1
     and eax, 1                      ; We extract the direction of the cell where the piece needs to be killed (0 = above, 1 = below).
@@ -895,26 +943,43 @@ proc movePiece
     call calculatePossibleMove, eax, [@@x], [@@y]
     cmp eax, 0
     je @@return
+    push eax
 
     ; If the destination contains a piece, we must remove it (since it is killed).
     cmp [@@destPieceAddress], 0
-    je @@move
+    je @@checkClearEnPassent
     call killPiece, [@@destPieceAddress]
 
-    @@move:
-        ; Updating the previously selected cell
-        push eax
-        mov al, [selectedCellX]
-        mov [prevSelectedCellX], al
-        mov al, [selectedCellY]
-        mov [prevSelectedCellY], al
+    ; Since en passant is only valid for one turn, we must reset the en passant state (if it has not been set in this turn).
+    @@checkClearEnPassent:
+    mov eax, [enPassantState]
+    call getEnPassantPieceCoordinates, eax
+    cmp eax, [@@x]
+    jne @@clearEnpassant
+    cmp ebx, [@@y]
+    jne @@clearEnpassant
+    jmp @@move
 
-        ; Updating the selected cell to the destination cell.
+    @@clearEnpassant:
+    mov [enPassantState], 0 
+
+    @@move:
+        ; Updating the previous move source
+        mov al, [selectedCellX]
+        mov [prevMoveSourceX], al
+        mov al, [selectedCellY]
+        mov [prevMoveSourceY], al
+
+        ; Updating the previous move destination.
         mov eax, [@@x]
-        mov [selectedCellX], al 
+        mov [prevMoveDestinationX], al 
         mov eax, [@@y]
-        mov [selectedCellY], bl
+        mov [prevMoveDestinationY], bl
         pop eax
+
+        ; Clearing the current selection
+        mov [selectedCellX], 8
+        mov [selectedCellY], 8
 
         ; Updating the position of the piece.
         and eax, 111111000000b
@@ -1056,14 +1121,14 @@ endp pieceArrayFromType
 
 proc findPieceAddress
     arg @@x:dword, @@y:dword
-    uses edi, ecx, ebx
+    uses edi, ecx, ebx, edx
     xor eax, eax
     xor ebx, ebx
     lea edi, [word ptr pieces]
     mov ecx, PIECEAMOUNT
     @@search:
-        movzx eax, [word ptr edi]
-        call coordinatesFromEncPiece, eax
+        movzx edx, [word ptr edi]
+        call coordinatesFromEncPiece, edx
         cmp eax, [@@x]
         jne @@next
         cmp ebx, [@@y]
@@ -1074,6 +1139,9 @@ proc findPieceAddress
         loop @@search
         jmp @@notFound
     @@found:
+        call aliveFromEncPiece, edx
+        cmp eax, 0
+        je @@notFound
         mov eax, edi
         jmp @@return
     @@notFound:
@@ -1296,8 +1364,8 @@ proc selectCell
     pop ebx
     mov [selectedCellX], al             ;   ... belongs to the current player, we select this piece.
     mov [selectedCellY], bl
-    mov [prevSelectedCellX], 8          ; The source of the previous piece movement is no longer relevant.
-    mov [prevSelectedCellY], 8          ;
+    ;mov [prevSelectedCellX], 8          ; The source of the previous piece movement is no longer relevant.
+    ;mov [prevSelectedCellY], 8          ;
     jmp @@return
 
     ; ----- currently not used -----
@@ -1320,7 +1388,7 @@ proc selectCell
         jne @@continue              ; If the destination cell is occupied, we must not check for en passant.
         call typeFromEncPiece, edx  ; Type of the piece in al
         cmp al, 7
-        jge @@continue              ; When the currently selected piece is not a rook, we can not have en passant.
+        jge @@continue              ; When the currently selected piece is not a rook, we can not have en passant, nor pawn promotion.
         pop eax                     ; Popping from stack:   ebx = y-coordinate of the source piece
         pop ebx                     ;                       eax = x-coorindate of the source piece
         push ebx                    ; Push them again to the stack because the isEnPassantCell procedure will return values in these registers.
@@ -1771,14 +1839,14 @@ DATASEG
     knightFileName db "bitmaps/knight.bin", 0
     rookFileName db "bitmaps/rook.bin", 0
 
-
     turnColor db 03h
     whiteColor db 42h
     blackColor db 06h
-
     whitePieceColor db 0Fh
     blackPieceColor db 00h
-
+    selectedColor db 36h
+    prevSourceColor db 76h
+    prevDestinationColor db 78h
     winnerColor db 02h
 
     startTime dd 0
@@ -1797,8 +1865,10 @@ DATASEG
 
     selectedCellX db 8
     selectedCellY db 8
-    prevSelectedCellX db 8
-    prevSelectedCellY db 8
+    prevMoveSourceX db 8
+    prevMoveSourceY db 8
+    prevMoveDestinationX db 8
+    prevMoveDestinationY db 8
 
     currentTurn db 1
     winner db 2        ; 2 = undecided, 0 = white, 1 = black
