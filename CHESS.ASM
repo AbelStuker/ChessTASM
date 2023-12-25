@@ -1069,16 +1069,42 @@ endp checkQueenMove
 
 proc checkKingMove
     arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword
+    uses ebx, edx, ecx
 
     call getAbsoluteDifference, [@@pieceY], [@@destinationY]
     cmp eax, 1
-    je @@possible
-    cmp eax, 0
-    jne @@notPossible
+    jg @@notPossible
     call getAbsoluteDifference, [@@pieceX], [@@destinationX]
     cmp eax, 1
-    je @@possible
-    jmp @@notPossible
+    jle @@possible
+    ; Checking for castling
+    cmp eax, 2
+    jne @@notPossible
+    cmp [@@destinationX], 2
+    je @@castleLeft
+    mov ebx, 7              ; Right castling when destinationX is 6
+    mov ecx, 5              ; New position of the rook
+    jmp @@continueCastle
+    @@castleLeft:           ; Left castling when destinationX is 2
+    mov ebx, 0
+    mov ecx, 3              ; New position of the rook
+    @@continueCastle:
+    mov eax, [@@destinationY]
+    call findPieceAddress, ebx, [@@destinationY]
+    cmp eax, 0
+    je @@notPossible
+    mov edx, eax
+    mov eax, [dword ptr eax]
+    call typeFromEncPiece, eax      ; Check if the rook is still at it's position
+    cmp eax, 8
+    jl @@notPossible
+    cmp eax, 9
+    jg @@notPossible 
+    call isPathEmpty, [@@pieceX], ebx, [@@pieceY], [@@destinationY]     ; Check if the path between the king and the rook is empty
+    cmp eax, 0
+    je @@notPossible
+    call updatePiecePosition, edx, ecx, [@@destinationY]                ; Update the position of the rook
+
     @@possible:
         mov eax, 1
         jmp @@return
@@ -1190,6 +1216,25 @@ proc killPiece
     ret
 endp killPiece
 
+proc updatePiecePosition
+    arg @@pieceAddress:dword, @@x:dword, @@y:dword
+    uses eax, ebx, edi, edx
+    mov edi, [@@pieceAddress]
+
+    mov ax, [word ptr edi]
+    and eax, 111111000000b
+    mov ebx, [@@x]
+    mov edx, [@@y]
+    and ebx, 111b       ; Just to be sure that the x-coordinate is not larger than 7.
+    and edx, 111b       ;
+    shl ebx, 3          ; Shift 3 y coordinate bits 3 positions to the left to make room for the 3 x coordinate bits.
+    or ebx, edx         ; Combine the x and the y coordinate bits.
+    or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
+    mov [word ptr edi], ax
+
+    ret
+endp updatePiecePosition
+
 proc movePiece
     arg @@pieceAddress:dword, @@x:dword, @@y:dword, @@destPieceAddress:dword
     uses eax, ebx, edx, edi
@@ -1237,15 +1282,8 @@ proc movePiece
         mov [selectedCellY], 8
 
         ; Updating the position of the piece.
-        and eax, 111111000000b
-        mov ebx, [@@x]
-        mov edx, [@@y]
-        and ebx, 111b       ; Just to be sure that the x-coordinate is not larger than 7.
-        and edx, 111b       ;
-        shl ebx, 3          ; Shift 3 y coordinate bits 3 positions to the left to make room for the 3 x coordinate bits.
-        or ebx, edx         ; Combine the x and the y coordinate bits.
-        or eax, ebx         ; Combine the x and y coordinate bits with the piece type and color bits.
-        mov [word ptr edi], ax
+        call updatePiecePosition, edi, [@@x], [@@y]
+        
 
         ; Changing the turn of the player.
         ; call changeCurrentTurn        TODO ENABLE AGAIN!!
@@ -1286,12 +1324,22 @@ proc changeCurrentTurn
 endp changeCurrentTurn
 
 ;; Procedures to obtain properties based on the encoded piece.
+proc hasMovedFromEncPiece
+    arg @@encodedPiece:dword
+    xor eax, eax
+    mov eax, [@@encodedPiece]
+    shr eax, 12
+    and eax, 1
+    ret
+endp hasMovedFromEncPiece
+
 proc aliveFromEncPiece
     arg @@encodedPiece:dword
     xor eax, eax
     mov eax, [@@encodedPiece]
     ;and eax, 10000000000b
     shr eax, 11
+    and eax, 1
     ret
 endp aliveFromEncPiece
 
@@ -2042,21 +2090,21 @@ proc main
 
     ; TEST CASE
 ; 
-    ;mov eax, (24 * 4) + 19
-    ;mov ebx, (24 * 5) + 5
-    ;mov [lastMouseX], eax
-    ;mov [lastMouseY], ebx
-    ;call selectCell, eax, ebx
-    ;call drawBoard
-    ;call drawPawnPromotionMenu;
+    mov eax, (24 * 4) + 19
+    mov ebx, (24 * 7) + 5
+    mov [lastMouseX], eax
+    mov [lastMouseY], ebx
+    call selectCell, eax, ebx
+    call drawBoard
+    call drawPawnPromotionMenu;
 
-    ;mov eax, (24 * 3) + 19
-    ;mov ebx, (24 * 4) + 5
-    ;mov [lastMouseX], eax
-    ;mov [lastMouseY], ebx
-    ;call selectCell, eax, ebx
-    ;call drawBoard
-   ; call drawPawnPromotionMenu
+    mov eax, (24 * 6) + 19
+    mov ebx, (24 * 7) + 5
+    mov [lastMouseX], eax
+    mov [lastMouseY], ebx
+    call selectCell, eax, ebx
+    call drawBoard
+    call drawPawnPromotionMenu
 
     ;mov eax, (24 * 3) + 19
     ;mov ebx, (24 * 4) + 5
@@ -2142,7 +2190,7 @@ DATASEG
     ;        dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
     pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
             dw 100000000001b, 100001001001b, 100010010001b, 100011011100b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
-            dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
+            dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 011101101111b, 011011110111b, 111001111111b
             dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100101b, 110101101110b, 110110110110b, 110111111110b
 
 
