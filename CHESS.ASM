@@ -1265,6 +1265,10 @@ endp selectedPiece
 proc selectCell
     arg @@xPixel:dword , @@yPixel:dword
     uses eax, ebx, edx, ecx
+
+    cmp [winner], 2         ; If the game has ended, we do not want to select any cells.
+    jne @@return
+
     call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; Returns the grid x-coordinate in eax and the grid y-coordinate in ebx
     push ebx
     push eax
@@ -1748,11 +1752,7 @@ DATASEG
     enPassantState dd 0
 
     framebuffer db 64000 dup (0)
-    selectedcell dd 1
-    leftcellvisible dw 0
-    rightcellvisible dw 0
-    fontfilename db "GUI\FONT.BIN", 0
-    ;fontarray db FONTFILE_SIZE dup (?)
+    
     
 
     asciiFileName db "bitmaps/5x5.bin", 0
