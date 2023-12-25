@@ -526,6 +526,75 @@ proc isPathEmpty
         ret
 endp isPathEmpty
 
+proc setEnPassantCell
+    arg @@destinationX:dword, @@destinationY:dword, @@direction:dword
+    uses eax, ebx
+
+    cmp [@@direction], 0
+    mov eax, [@@destinationY]
+    je @@above
+    dec eax
+    jmp @@encode
+    @@above:
+    inc eax
+
+    @@encode:
+    mov [@@destinationY], eax
+    mov eax, [@@destinationX]
+    shl eax, 5
+    mov ebx, [@@destinationY]
+    shl ebx, 2
+    or eax, ebx
+    mov ebx, [@@direction]
+    shl ebx, 1
+    or eax, ebx
+    or eax, 1
+    mov [enPassantState], eax
+    ret
+
+endp setEnPassantCell
+
+proc isEnPassantCell
+    arg @@destinationX:dword, @@destinationY:dword
+
+    mov ebx, [enPassantState]
+    mov eax, ebx
+    and eax, 1
+    cmp eax, 0                      ; If the en passant state is not active, the cell can never be the en passant cell.
+    je @@notPossible
+    mov eax, ebx
+    shr eax, 2
+    and eax, 111b                   ; We extract the y-coordinate of the en passant cell
+    cmp eax, [@@destinationY]       ;   and compare it with the y-coordinate of the provided cell.
+    jne @@notPossible
+    mov eax, ebx
+    shr eax, 5
+    and eax, 111b                   ; We extract the x-coordinate of the en passant cell
+    cmp eax, [@@destinationX]       ;   and compare it with the x-coordinate of the provided cell.
+    jne @@notPossible
+    mov eax, ebx                    ; When all checks are passed, the provided cell is the enPassantCell.
+    shr eax, 1
+    and eax, 1                      ; We extract the direction of the cell where the piece needs to be killed (0 = above, 1 = below).
+    mov ebx, [@@destinationY]
+    cmp eax, 0
+    je @@aboveKilled
+    inc ebx                         ; If the direction bit is 1, the piece below must be killed so return register ebx must contain the destinationY + 1.
+    jmp @@possible
+    @@aboveKilled:
+        dec ebx                     ; If the direction bit is 0, the piece above must be killed so return register eax must contain the destinationY - 1.
+
+    @@possible:
+        mov eax, 1
+        jmp @@return
+
+    @@notPossible:
+        mov eax, 0
+    
+    @@return:
+        ret
+
+endp isEnPassantCell
+
 ;; Procedures to check moves of individual piece types.
 proc checkPawnMove
     arg @@pieceX:dword, @@pieceY:dword, @@destinationX:dword, @@destinationY:dword, @@destinationOccupation:dword, @@player:byte
@@ -546,7 +615,7 @@ proc checkPawnMove
         je @@pawnTestX
         cmp ebx, 2
         je @@pawnTestFirstMove
-        jmp SHORT @@notPossible
+        jmp @@notPossible
     @@pawnTestFirstMove:
         call getAbsoluteDifference, [@@pieceX], [@@destinationX]
         cmp eax, 0
@@ -557,12 +626,14 @@ proc checkPawnMove
         jmp @@pawnTestFirstMoveWhite
         @@pawnTestFirstMoveBlack:
             cmp [@@pieceY], 6
-            je @@possible
-            jmp @@notPossible
+            jne @@notPossible
+            call setEnPassantCell, [@@destinationX], [@@destinationY], 0
+            jmp @@possible
         @@pawnTestFirstMoveWhite:
             cmp [@@pieceY], 1
-            je @@possible
-            jmp @@notPossible
+            jne @@notPossible
+            call setEnPassantCell, [@@destinationX], [@@destinationY], 1
+            jmp @@possible
     @@pawnTestX:
         call getAbsoluteDifference, [@@pieceX], [@@destinationX]
         cmp eax, 0
@@ -572,12 +643,18 @@ proc checkPawnMove
         jmp @@notPossible
     @@testPawnDiagonal:
         cmp [@@destinationOccupation], 0        ; If the diagonal cell is not occupied, the move is not possible.
-        je @@notPossible
+        je @@testEnPassant
         jmp @@possible                          ; If the diagonal cell is occupied, it must be occupied by the other player (because we already checked if it was occupied by the same player).
     @@testPawnVertical:
         cmp [@@destinationOccupation], 0        ; If the vertical cell is occupied, the move is not possible.
         je @@possible
-        jmp @@notPossible
+        jmp @@testEnPassant
+    @@testEnPassant:
+        call isEnPassantCell, [@@destinationX], [@@destinationY]
+        cmp eax, 0
+        je @@notPossible
+        jmp @@possible
+
     @@possible:
         mov eax, 1
         jmp @@return
@@ -1189,9 +1266,9 @@ proc selectCell
     arg @@xPixel:dword , @@yPixel:dword
     uses eax, ebx, edx, ecx
     call gridCoordinateFromPixelCoordinate, [@@xPixel], [@@yPixel]      ; Returns the grid x-coordinate in eax and the grid y-coordinate in ebx
-    push eax
     push ebx
-    ; If the destination cell does not contain a piece, we may want the currently selected piece (if any) to move to this cell.
+    push eax
+    ; If the destination cell does not contain a piece of the same player, we may want the currently selected piece (if any) to move to this cell.
     call findPieceAddress, eax, ebx     ; Returns the address of the piece at the destination cell in eax. If no piece is found, eax is set to 0.
     push eax                            ; We push this onto the stack since we may need it later in movePiece to remove the piece.
     cmp eax, 0
@@ -1203,8 +1280,8 @@ proc selectCell
     cmp al, [currentTurn]               ; If the piece in the destination cell ...
     jne @@destinationSelection          ;   ... belongs to the other player, we try to move the currently selected piece (if any) to this cell.
     pop ebx ; thrown away 
-    pop ebx
     pop eax
+    pop ebx
     mov [selectedCellX], al             ;   ... belongs to the current player, we select this piece.
     mov [selectedCellY], bl
     mov [prevSelectedCellX], 8          ; The source of the previous piece movement is no longer relevant.
@@ -1222,14 +1299,33 @@ proc selectCell
     ; ------------------------------
 
     @@destinationSelection:
-        call selectedPiece      ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
-        cmp eax, 0              ; If no piece is selected, we do nothing.
+        call selectedPiece          ; Returns the address of the selected piece in eax. If no piece is selected, eax is set to 0.
+        cmp eax, 0                  ; If no piece is selected, we do nothing.
         je @@return
-        mov edx, eax            ; If a piece is selected, it will be moved to the destination cell.
-        pop ecx                 ; Popping from stack:   ecx = address of destination piece (can be 0 if no piece is present)
-        pop ebx                 ;                       ebx = y-coordinate of the source piece
-        pop eax                 ;                       eax = x-coorindate of the source piece
-
+        mov edx, eax                ; If a piece is selected, it will be moved to the destination cell when possible.
+        pop ecx                     ; Popping from stack:   ecx = address of destination piece (can be 0 if no piece is present)
+        cmp ecx, 0
+        jne @@continue              ; If the destination cell is occupied, we must not check for en passant.
+        call typeFromEncPiece, edx  ; Type of the piece in al
+        cmp al, 7
+        jge @@continue              ; When the currently selected piece is not a rook, we can not have en passant.
+        pop eax                     ; Popping from stack:   ebx = y-coordinate of the source piece
+        pop ebx                     ;                       eax = x-coorindate of the source piece
+        push ebx                    ; Push them again to the stack because the isEnPassantCell procedure will return values in these registers.
+        push eax                    ;
+        call isEnPassantCell, eax, ebx  ; ebx = y-coordinate of the en passant piece cell
+        cmp eax, 0                  ; eax = en passant possible (0 = no, 1 = yes)
+        je @@continue
+        pop eax
+        push eax                    ; Push again on the stack because the findPieceAddress procedure will a value in eax and we need 
+        call findPieceAddress, eax, ebx ; Using the y-coordinate returned by the isEnPassantCell procedure (to find the piece to kill).
+        cmp eax, 0                  ; Is not supposed to happen.
+        je @@continue
+        mov ecx, eax                ; edx = address of the piece to kill
+     
+        @@continue:
+        pop eax
+        pop ebx
         call movePiece, edx, eax, ebx, ecx
 
     @@return:
@@ -1572,6 +1668,12 @@ proc main
     mov eax, (24 * 2) + 5
     mov ebx, (24 * 4) + 5
     call selectCell, eax, ebx
+    mov eax, (24 * 3) + 5
+    mov ebx, (24 * 4) + 5
+    call selectCell, eax, ebx
+    mov eax, (24 * 2) + 5
+    mov ebx, (24 * 5) + 5
+    call selectCell, eax, ebx
     ;mov eax, 5
     ;mov ebx, 5
     ;call selectCell, eax, ebx
@@ -1608,27 +1710,42 @@ endp main
 DATASEG
     
     ; Each chess piece is encoded in a word. The format is as follows (where B represents a bit):
-    ;       B   BBBB   BBB   BBB
-    ;       |   |      |     |
-    ;      (1) (2)    (3)   (4)
+    ;       B   B   BBBB   BBB   BBB
+    ;       |   |     |     |     |
+    ;      (1) (2)   (3)   (4)   (5)
     ;
-    ; (1):  PLAYER
+    ; (1):  ALIVE
+    ; (2):  PLAYER
     ;       0 = white
     ;       1 = black
-    ; (2):  PIECE TYPE
+    ; (3):  PIECE TYPE
     ;       0000 until 0111     = pawns
     ;       1000 and 1001       = rooks
     ;       1010 and 1011       = knights
     ;       1100 and 1101       = bishops
     ;       1110                = queen
     ;       1111                = king
-    ; (3):  X-COORDINATE
-    ; (4):  Y-COORDINATE
+    ; (4):  X-COORDINATE
+    ; (5):  Y-COORDINATE
     
     pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
-            dw 100000000001b, 100001001001b, 100010010001b, 100011011001b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
+            dw 100000000001b, 100001001001b, 100010010001b, 100011011100b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
             dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
             dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
+
+
+    ; When a player makes a move that opens the possibility of an en passant capture, the en passant state is modified.
+    ;       BBB   BBB   B   B
+    ;       |     |     |   |
+    ;      (1)   (2)   (3) (4)
+    ;
+    ; (1):  x-coordinate of the en passant cell (jumped over by the player)
+    ; (2):  y-coordinate of the en passant cell (jumped over by the player)
+    ; (3):  direction of the piece that can be captured en passant
+    ;       0 = above
+    ;       1 = below
+    ; (4):  en passant possible
+    enPassantState dd 0
 
     framebuffer db 64000 dup (0)
     selectedcell dd 1
