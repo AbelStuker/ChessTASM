@@ -237,6 +237,7 @@ endp setScenario4
 
 proc restartGame
     call readScenario, 0
+    call drawRectangle, 0, 0, SCREENWIDTH, SCREENHEIGHT, 0
     mov [enPassantState], 0
     mov [startTime], 0
     mov [currentTurn], 0
@@ -1729,7 +1730,7 @@ proc selectCell
     arg @@x:dword , @@y:dword
     local @@destPiece:dword
     uses eax, ebx, edx
-    
+
     cmp [winner], 2         ; If the game has ended, we do not want to select any cells.
     jne @@return
 
