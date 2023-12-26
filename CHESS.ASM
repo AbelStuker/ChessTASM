@@ -4,13 +4,13 @@
 ; TASM
 ; ---------∏----------------------------------------------------------
 
-IDEAL
+ideal
 P386
-MODEL FLAT, C
-ASSUME cs:_TEXT,ds:FLAT,es:FLAT,fs:FLAT,gs:FLAT
+model FLAT, C
+assume cs:_TEXT,ds:FLAT,es:FLAT,fs:FLAT,gs:FLAT
 
-INCLUDE "CHESS.INC"
-INCLUDE "MOUSE.INC"
+include "CHESS.INC"
+include "MOUSE.INC"
 
 
 ; -------------------------------------------------------------------
@@ -199,6 +199,84 @@ proc determineCellColor
 
 endp determineCellColor
 
+proc readScenario
+    arg @@scenarioNumber:dword
+    uses eax, ebx
+    
+    mov eax, [@@scenarioNumber]
+    mov ebx, 4
+    mul ebx
+    mov edx, [scenarioFileNames + eax]
+    call getFileHandle, edx, READ_ONLY
+    mov ebx, eax
+    call readFile, ebx, offset pieces, 32 * 2
+    call closeFile, ebx
+    call saveGame
+    ret
+endp readScenario
+
+proc setScenario1  
+    call readScenario, 2
+    ret
+endp setScenario1
+
+proc setScenario2
+    call readScenario, 3
+    ret
+endp setScenario2
+
+proc setScenario3
+    call readScenario, 4
+    ret
+endp setScenario3
+
+proc setScenario4
+    call readScenario, 5
+    ret
+endp setScenario4
+
+proc restartGame
+    call readScenario, 0
+    mov [enPassantState], 0
+    mov [startTime], 0
+    mov [currentTurn], 0
+    mov [ppPieceAddress], 0
+    mov [ppMenuVisible], 0
+    mov [selectedCellX], 8
+    mov [selectedCellY], 8
+    mov [prevMoveSourceX], 8
+    mov [prevMoveSourceY], 8
+    mov [prevMoveDestinationX], 8
+    mov [prevMoveDestinationY], 8
+    mov [whiteLastTime], PLAY_TIME
+    mov [blackLastTime], PLAY_TIME
+    mov [whiteTimer], PLAY_TIME
+    mov [blackTimer], PLAY_TIME
+    mov [winner], 2
+    call initializeTimers
+    ret
+endp restartGame
+
+proc restoreGame
+    call readScenario, 1
+    ret
+endp restoreGame
+
+proc saveGame
+    uses eax, ebx
+    call getFileHandle, offset savedGameFileName, WRITE_ONLY
+    mov ebx, eax
+    call writeFile, ebx, offset pieces, 32 * 2
+    call closeFile, ebx
+    ret
+endp saveGame
+
+proc toggleScenariosVisible
+    uses eax
+    mov al, [scenariosVisible]
+    xor al, 1
+    mov [scenariosVisible], al
+endp toggleScenariosVisible
 
 proc transferFrame
 	uses eax, ecx, edi, esi
@@ -226,6 +304,7 @@ endp transferFrame
 ; Terminate the program.
 proc terminateProcess
 	uses eax
+    call mouse_uninstall
 	call unsetupVideo
 	mov	ax,04C00h
 	int 21h
@@ -240,7 +319,7 @@ proc getFileHandle
     arg @@fileName:dword, @@accessMode:dword
     uses ebx, ecx, edx
 
-    xor eax, eax                ; clear the eax register (handle is stored only in ax)
+    mov eax, [@@accessMode]
     mov edx, [@@fileName]
     mov ecx, [@@accessMode]
     mov ah, 3Dh
@@ -271,6 +350,24 @@ proc readFile
     ret
 endp readFile
 
+proc writeFile
+    arg @@fileHandle:dword, @@dataBuffer:dword, @@byteCount:dword
+    uses eax, ebx, ecx, edx
+
+    mov ah, 40h
+    mov ebx, [@@fileHandle] 
+    mov ecx, [@@byteCount]
+    mov edx, [@@dataBuffer]
+    int 21h
+
+    jnc @@return
+
+    call terminateProcess
+
+    @@return:
+    ret
+endp writeFile
+
 ; close a file
 proc closeFile
     arg @@fileHandle:dword
@@ -288,7 +385,7 @@ proc loadBitmap
     arg @@fileName:dword, @@dataBuffer:dword, @@size:dword
     uses eax, ebx
     
-    call getFileHandle, [@@fileName], 0
+    call getFileHandle, [@@fileName], READ_ONLY
     mov ebx, eax
     call readFile, ebx, [@@dataBuffer], [@@size]
     call closeFile, ebx
@@ -606,16 +703,26 @@ endp isEnPassantCell
 
 proc requestPawnPromotionSelection
     arg @@x:dword, @@y:dword
+    local @@alignment:dword
     uses edi, ebx, edx, ecx, eax
 
     ; The provided x- and y-coordinates are grid-coordinates. We need to convert them to the left-most top of the menu that will be shown.
-    ;   The x-coordinate will be the left-most top of the cell right to the provided cell.
+    ;   The x-coordinate will depend on whether the cell resides at the two right most columns (to prevent the menu from overflowing at the right).
     ;   The x-coordinate will depend on whether the cell resides at the bottom of the field or not (to prevent the menu from overflowing at the bottom).
     mov eax, [@@x]
+    cmp eax, 6
+    jl @@alignLeft
+    mov [@@alignment], ALIGN_RIGHT
+    jmp @@continueConvertX
+    @@alignLeft:
     inc eax
+    mov [@@alignment], ALIGN_LEFT
+
+    @@continueConvertX:
     mov ebx, CELLDIMENSION
     mul ebx
     mov [@@x], eax
+
     mov ebx, CELLDIMENSION
     mov eax, [@@y]
     cmp eax, 5
@@ -635,13 +742,13 @@ proc requestPawnPromotionSelection
     lea edi, [dword ptr ppButtons]
     mov ecx, [@@x]
     mov ebx, [@@y]
-    movzx eax, [pawnPromotionString]
+    ;movzx eax, [pawnPromotionString]
     ;call getStringDimensions, eax
     @@ppButtonDrawLoop:
-        mov edx, [dword ptr edi]    ; address of the button in eax
+        mov edx, [dword ptr edi]
         cmp edx, 0
         je @@return
-        call makeButton, edx, ecx, ebx
+        call makeButton, edx, ecx, ebx, [@@alignment]
         add edi, 4
         jmp @@ppButtonDrawLoop
     
@@ -654,6 +761,7 @@ proc executePawnPromotion
     arg @@pieceType:dword
     uses eax, ebx, edi
 
+    mov [ppMenuVisible], 0
     mov edi, [ppPieceAddress]
     mov ax, [word ptr edi]
     mov ebx, [@@pieceType]
@@ -689,6 +797,23 @@ proc executePawnPromotion
 endp executePawnPromotion
 
 proc makeButton
+    arg @@buttonAddress:dword, @@x:dword, @@y:dword, @@alignment:byte 
+
+    cmp [@@alignment], ALIGN_LEFT
+    je @@leftAlign
+    cmp [@@alignment], ALIGN_CENTER
+    je @@centerAlign
+    call makeRightAlignButton, [@@buttonAddress], [@@x], [@@y]
+    jmp @@return
+    @@leftAlign:
+        call makeLeftAlignButton, [@@buttonAddress], [@@x], [@@y]
+        jmp @@return
+    @@centerAlign:
+    @@return:
+    ret
+endp makeButton
+
+proc makeLeftAlignButton
     arg @@buttonAddress:dword, @@x:dword, @@y:dword
     uses edi, ecx
     mov edi, [@@buttonAddress]
@@ -709,7 +834,31 @@ proc makeButton
     mov eax, [@@x]
     mov ebx, [@@y]
     ret
-endp makeButton
+endp makeLeftAlignButton
+
+proc makeRightAlignButton
+    arg @@buttonAddress:dword, @@x:dword, @@y:dword
+    uses edi, ecx
+    mov edi, [@@buttonAddress]
+    add edi, 16
+    mov eax, [dword ptr edi]
+    call getStringDimensions, eax
+    sub edi, 4
+    mov [edi], ebx
+    sub edi, 4
+    mov [edi], eax
+    push [@@x]
+    sub [@@x], eax
+    sub edi, 4
+    mov eax, [@@y]
+    mov [edi], eax
+    sub edi, 4
+    mov eax, [@@x]
+    mov [edi], eax
+    pop eax
+    add ebx, [@@y]
+    ret
+endp makeRightAlignButton
 
 proc getButtonCoordinates
     arg @@button:dword
@@ -751,8 +900,8 @@ proc drawButton
     
     mov edi, [@@buttonAddress]
     call getButtonCoordinates, edi
-    push eax
-    push ebx
+    ;push eax
+    ;push ebx
     add edi, 16
     mov edx, [dword ptr edi]
 
@@ -760,87 +909,31 @@ proc drawButton
     je @@notSelected
     movzx ecx, [selectedColor]
     call drawString, edx, eax, ebx, 0Fh, ecx
-    jmp @@drawBorder
+    jmp @@return
     @@notSelected:
         call drawString, edx, eax, ebx, 0Fh, 0FFh
     
-    @@drawBorder:
-        pop ecx
-        pop edx
-        sub eax, edx
-        sub ebx, ecx
-        ;call drawRectangle, edx, ecx, eax, 1, 1ah
-        ;call drawRectangle, edx, ecx, 1, ebx, 1ah
+   ; @@drawBorder:
+   ;     pop ecx
+   ;     pop edx
+   ;     sub eax, edx
+   ;     sub ebx, ecx
+   ;     call drawRectangle, edx, ecx, eax, 1, 1ah
 
 
     @@return:
     ret
 endp drawButton
 
-proc drawPawnPromotionMenu
-    local @@x:dword, @@y:dword
-    uses eax, ebx, edx, edi, ecx
-
-    mov eax, [lastMouseX]
-    mov ebx, [lastMouseY]
-    mov [@@x], eax
-    mov [@@y], ebx
-
-    ; call drawString, offset pawnPromotionString, eax, ebx, 0FFh, 0Fh
-
-    cmp [ppMenuVisible], 0
-    je @@return
-    lea edi, [dword ptr ppButtons]
+proc getButtonFromArray
+    arg @@buttonArray:dword, @@x:dword, @@y:dword
+    uses ebx, edx, edi, ecx
+    mov edi, [@@buttonArray]
     xor ecx, ecx
     @@buttonLoop:
         mov edx, [dword ptr edi]
         cmp edx, 0
-        je @@return
-        push [@@x]
-        push [@@y] 
-        call getButtonCoordinates, edx
-        cmp [@@x], eax
-        jl @@notSelected
-        cmp [@@y], ebx
-        jl @@notSelected
-        sub [@@x], eax
-        sub [@@y], ebx
-        call getButtonDimensions, edx
-        cmp [@@x], eax
-        jge @@notSelected
-        cmp [@@y], ebx
-        jge @@notSelected
-        call drawButton, edx, 1
-        jmp @@nextButton
-
-        @@notSelected:
-            call drawButton, edx, 0
-
-        @@nextButton:
-            inc ecx
-            pop [@@y] 
-            pop [@@x]
-            add edi, 4
-            jmp @@buttonLoop
-   
-
-    @@return:
-    ret
-endp drawPawnPromotionMenu
-
-
-proc selectButton
-    arg @@x:dword, @@y:dword
-    uses eax, ebx, edx, edi, ecx
-
-    cmp [ppMenuVisible], 0
-    je @@noSelection
-    lea edi, [dword ptr ppButtons]
-    xor ecx, ecx
-    @@buttonLoop:
-        mov edx, [dword ptr edi]
-        cmp edx, 0
-        je @@noSelection
+        je @@noSelection    ; reached end of button
         push [@@x]
         push [@@y] 
         call getButtonCoordinates, edx
@@ -855,11 +948,7 @@ proc selectButton
         jge @@nextButton
         cmp [@@y], ebx
         jge @@nextButton
-        mov [ppMenuVisible], 0
-        ;call getButtonProcedure, edx
-        ;call eax
-        call executePawnPromotion, ecx
-        mov eax, 1
+        mov eax, edx
         jmp @@return
 
         @@nextButton:
@@ -871,32 +960,65 @@ proc selectButton
         
         @@noSelection:
             mov eax, 0
-   
+
+        @@return:
+            ret
+
+endp getButtonFromArray
+
+proc selectButton
+    arg @@x:dword, @@y:dword
+    uses eax, ebx, edx, edi, ecx
+
+    cmp [ppMenuVisible], 0
+    je @@checkOtherButtons
+    lea edi, [dword ptr ppButtons]
+    call getButtonFromArray, edi, [@@x], [@@y]
+    cmp eax, 0
+    jne @@buttonFound
+    @@checkOtherButtons:
+    lea edi, [dword ptr optionsMenuButtons]
+    call getButtonFromArray, edi, [@@x], [@@y]
+    cmp eax, 0
+    jne @@buttonFound
+    lea edi, [dword ptr scenarioButtons]
+    call getButtonFromArray, edi, [@@x], [@@y]
+    cmp eax, 0
+    jne @@buttonFound
+
+    @@notFound:
+        mov eax, 0
+        jmp @@return
+
+    @@buttonFound:
+        call getButtonProcedure, eax
+        call eax
+
     @@return:
         ret
 endp selectButton
 
 
 
-;proc pawnPromoteQueen
-;    call executePawnPromotion, 0
-;    ret
-;endp pawnPromoteQueen;
+proc pawnPromoteQueen
+    call executePawnPromotion, 0
+    ret
+endp pawnPromoteQueen;
 
-;proc pawnPromoteBishop
-;    call executePawnPromotion, 1
-;    ret
-;endp pawnPromoteBishop
+proc pawnPromoteBishop
+    call executePawnPromotion, 1
+    ret
+endp pawnPromoteBishop
 
-;proc pawnPromoteKnight
-;    call executePawnPromotion, 2
-;    ret
-;endp pawnPromoteKnight
+proc pawnPromoteKnight
+    call executePawnPromotion, 2
+    ret
+endp pawnPromoteKnight
 
-;proc pawnPromoteRook
-;    call executePawnPromotion, 3
-;    ret
-;endp pawnPromoteRook
+proc pawnPromoteRook
+    call executePawnPromotion, 3
+    ret
+endp pawnPromoteRook
 
 ;; Procedures to check moves of individual piece types.
 proc checkPawnMove
@@ -1286,11 +1408,12 @@ proc movePiece
         
 
         ; Changing the turn of the player.
-        ; call changeCurrentTurn        TODO ENABLE AGAIN!!
+        call changeCurrentTurn
         jmp @@return
     @@notPossible:
         mov [ppMenuVisible], 0
     @@return:
+        call saveGame
         ret
 endp movePiece
 
@@ -1480,12 +1603,6 @@ proc drawBitmap
     ;local @@size:dword
     uses eax, ebx, ecx, edx, edi
 
-    ; Calculate the size of the bitmap
-    ;mov eax, [@@width]
-    ;mov ebx, [@@height]
-    ;mul ebx
-    ;mov [@@size], eax
-
     mov edi, [@@dataBuffer]     ; edi contains address where bitmap starts
     mov edx, 0
     @@bitmap_loop:
@@ -1534,45 +1651,7 @@ proc drawBitmap
             jmp @@bitmap_loop
 
 
-   ; mov edi, [@@dataBuffer]     ; edx contains address where bitmap starts
-   ; mov ecx, 0
-   ; @@y_loop:
-   ;     push ecx
-   ;     mov ecx, PIECE_WIDTH
-   ;     @@x_loop:
-   ;         push ecx
-   ;         mov cl, 7
-   ;         @@x_byte_loop:
-   ;             mov al, [byte ptr edi]  ; move value at addr in ebx to eax to perform calculations (check bit at position ecx)
-   ;             shr al, cl             ; bitshift MUST be CL or a constant, nothing else!
-   ;             and al, 1
-   ;             cmp al, 0
-   ;             je @@x_byte_continue
-   ;             call drawPixel, [@@x_coord], [@@y_coord], 0Fh
-
-   ;         @@x_byte_continue:
-   ;             inc [@@x_coord]
-   ;             dec cl
-   ;             cmp cl, 0
-   ;             jge @@x_byte_loop
-
-   ;         @@x_loop_continue:
-   ;             pop ecx
-   ;             sub ecx, 8
-   ;             inc edi
-   ;             cmp ecx, 0
-   ;             jle @@y_continue
-   ;             inc [@@x_coord]
-   ;             jmp @@x_loop
-
-   ; @@y_continue:
-   ;     inc [@@y_coord]
-   ;     mov [@@x_coord], 0
-   ;     pop ecx
-   ;     inc ecx
-   ;     cmp ecx, PIECE_HEIGHT
-   ;     je @@return
-   ;     jmp @@y_loop
+   
 
     @@return:
         ret
@@ -1708,9 +1787,9 @@ proc selectCell
         @@checkPawnPromotion:
         ; When checking for pawn promotion, we must check if the pawn is at the first or last rank.
         ; Since the pawn can only move forward, we can safely check the first and last rank without differentiating between black and white pawns.
-        cmp [@@y], 2    ;; TODO: CHANGE TO 0 AGAIN, 2 WAS FOR TESTING EASILY
+        cmp [@@y], 0
         je @@pawnPromotionPossible
-        cmp [@@y], 4
+        cmp [@@y], 7
         jne @@continue
         @@pawnPromotionPossible:
 
@@ -1996,6 +2075,76 @@ proc updateInformation
     ret
 endp updateInformation
 
+proc initializeButtons
+    arg @@buttons:dword, @@x:dword, @@y:dword, @@alignment:dword
+    uses ecx, edx, edi
+
+    mov edi, [@@buttons]
+    mov ecx, [@@x]
+    mov ebx, [@@y]
+
+    @@initButtonLoop:
+        mov edx, [dword ptr edi]
+        cmp edx, 0
+        je @@return
+        call makeButton, edx, ecx, ebx, [@@alignment]
+        add edi, 4
+        jmp @@initButtonLoop
+    @@return:
+    ret
+endp initializeButtons
+
+proc drawMenu
+    arg @@buttons:dword
+    local @@x:dword, @@y:dword
+    uses eax, ebx, edx, edi, ecx
+
+    mov eax, [lastMouseX]
+    mov ebx, [lastMouseY]
+    mov [@@x], eax
+    mov [@@y], ebx
+
+    mov edi, [@@buttons]
+    ;lea edi, [dword ptr edi]
+    xor ecx, ecx
+    @@buttonLoop:
+        mov edx, [dword ptr edi]
+        cmp edx, 0
+        je @@return
+        push [@@x]
+        push [@@y] 
+        call getButtonCoordinates, edx
+        cmp [@@x], eax
+        jl @@notSelected
+        cmp [@@y], ebx
+        jl @@notSelected
+        sub [@@x], eax
+        sub [@@y], ebx
+        call getButtonDimensions, edx
+        cmp [@@x], eax
+        jge @@notSelected
+        cmp [@@y], ebx
+        jge @@notSelected
+        call drawButton, edx, 1
+        jmp @@nextButton
+
+        @@notSelected:
+            call drawButton, edx, 0
+
+        @@nextButton:
+            inc ecx
+            pop [@@y] 
+            pop [@@x]
+            add edi, 4
+            jmp @@buttonLoop
+   
+
+    @@return:
+    ret
+
+    ret
+endp drawMenu
+
 ; ----------------------------------------------------------------------------
 ; Mouse function
 ; AX = condition mask causing call
@@ -2038,12 +2187,16 @@ proc mouseHandler
     @@draw:
         movzx ebx, [ppMenuVisible]
         cmp ebx, 0
-        jne @@drawPawnPromotionMenu
+        je @@drawBoard
+        call drawMenu, offset ppButtons
+        jmp @@drawOptionsMenu
+    @@drawBoard:
         call drawBoard
 
-    @@drawPawnPromotionMenu:
-        call drawPawnPromotionMenu
-        
+    @@drawOptionsMenu:
+        call drawMenu, offset optionsMenuButtons
+        call drawMenu, offset scenarioButtons
+
         call transferFrame
         ret
 endp mouseHandler
@@ -2055,17 +2208,12 @@ proc main
 	push ds
 	pop	es 
 
-    mov ah, 02h
-    int 1ah
+    ; Change the default color palette
+    ;call updateColourPalette
 
-    mov ah, 02h
-    int 1ah
+    
 
-    mov ah, 02h
-    int 1ah
-
-
-	; set video mode, init registers
+	; Setup the correct video mode
     call setupVideo
     
     ; We check if the mouse is present. If this is not the case, we print a message to the screen and terminate the program.
@@ -2084,28 +2232,41 @@ proc main
     call loadFont
     ; Load the pieces from the bitmap files and draw the board with pieces.
     call loadPieces
-    call drawBoard
+    ; Restore the previous state of the game (if possible)
+    call restoreGame
 
+    call drawBoard
+    call initializeButtons, offset optionsMenuButtons, SCREENWIDTH, 0, ALIGN_RIGHT
+    push ebx
+    call getStringDimensions, offset scenariosString
+    mov ecx, SCREENWIDTH
+    sub ecx, eax
+    pop ebx
+    add ebx, TEXT_HEIGHT
+    call drawString, offset scenariosString, ecx, ebx, 0FFh, 0Fh
+    call initializeButtons, offset scenarioButtons, SCREENWIDTH, ebx, ALIGN_RIGHT
+    call drawMenu, offset optionsMenuButtons
+    call drawMenu, offset scenarioButtons
     call initializeTimers
     call transferFrame
 
     ; TEST CASE
 ; 
-    mov eax, (24 * 4) + 19
-    mov ebx, (24 * 7) + 5
-    mov [lastMouseX], eax
-    mov [lastMouseY], ebx
-    call selectCell, eax, ebx
-    call drawBoard
-    call drawPawnPromotionMenu;
+    ;mov eax, 310
+    ;mov ebx, 5
+    ;mov [lastMouseX], eax
+    ;mov [lastMouseY], ebx
+    ;call selectButton, eax, ebx
+    ;call drawBoard
+    ;call drawMenu, offset ppButtons
 
-    mov eax, (24 * 6) + 19
-    mov ebx, (24 * 7) + 5
-    mov [lastMouseX], eax
-    mov [lastMouseY], ebx
-    call selectCell, eax, ebx
-    call drawBoard
-    call drawPawnPromotionMenu
+    ;mov eax, (24 * 4) + 19
+    ;mov ebx, (24 * 4) + 5
+    ;mov [lastMouseX], eax
+    ;mov [lastMouseY], ebx
+    ;call selectCell, eax, ebx
+    ;call drawBoard
+    ;call drawMenu, offset ppButtons
 
     ;mov eax, (24 * 3) + 19
     ;mov ebx, (24 * 4) + 5
@@ -2113,30 +2274,7 @@ proc main
     ;mov [lastMouseY], ebx
     ;call selectCell, eax, ebx
 
-    ;mov eax, (24 * 1) + 19
-    ;mov ebx, (24 * 2) + 5
-    ;mov [lastMouseX], eax
-    ;mov [lastMouseY], ebx
-    ;call selectButton, eax, ebx
-    ;call drawBoard
-    ;call drawPawnPromotionMenu
-    ;call drawPawnPromotionMenu
-;call selectCell, eax, ebx
-    ;mov eax, (24 * 5) + 5
-    ;mov ebx, (24 * 2) + 5
-    ;call selectCell, eax, ebx
-    ;mov eax, (24 * 3) + 5
-    ;mov ebx, (24 * 4) + 5
-    ;call selectCell, eax, ebx
-    ;mov eax, (24 * 2) + 5
-    ;mov ebx, (24 * 5) + 5
-    ;call selectCell, eax, ebx
-    ;mov eax, 5
-    ;mov ebx, 5
-    ;call selectCell, eax, ebx
-    ;mov eax, 5
-    ;mov ebx, 25
-    ;call selectCell, eax, ebx
+
     
     @@animation_loop:
     
@@ -2152,13 +2290,12 @@ proc main
     
 
     @@finish:
-        call mouse_uninstall
+        
         call terminateProcess
 
 
 
 endp main
-
 
 
 ; -------------------------------------------------------------------
@@ -2185,14 +2322,14 @@ DATASEG
     ; (4):  X-COORDINATE
     ; (5):  Y-COORDINATE
     
-    ;pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
-    ;        dw 100000000001b, 100001001001b, 100010010001b, 100011011001b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
-    ;        dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
-    ;        dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
     pieces  dw 101000000000b, 101010001000b, 101100010000b, 101110011000b, 101111100000b, 101101101000b, 101011110000b, 101001111000b
-            dw 100000000001b, 100001001001b, 100010010001b, 100011011100b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
-            dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 011101101111b, 011011110111b, 111001111111b
-            dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100101b, 110101101110b, 110110110110b, 110111111110b
+            dw 100000000001b, 100001001001b, 100010010001b, 100011011001b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
+            dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
+            dw 111000000111b, 111010001111b, 111100010111b, 111110011111b, 111111100111b, 111101101111b, 111011110111b, 111001111111b
+    ;pieces  dw 101000000000b, 001010001000b, 001100010000b, 001110011000b, 101111100000b, 001101101000b, 001011110000b, 101001111000b
+    ;        dw 100000000001b, 100001001001b, 100010010001b, 100011011001b, 100100100001b, 100101101001b, 100110110001b, 100111111001b
+    ;        dw 110000000110b, 110001001110b, 110010010110b, 110011011110b, 110100100110b, 110101101110b, 110110110110b, 110111111110b
+    ;        dw 111000000111b, 011010001111b, 011100010111b, 011110011111b, 111111100111b, 011101101111b, 011011110111b, 111001111111b
 
 
     ; When a player makes a move that opens the possibility of an en passant capture, the en passant state is modified.
@@ -2219,12 +2356,20 @@ DATASEG
     bishopFileName db "bitmaps/bishop.bin", 0
     knightFileName db "bitmaps/knight.bin", 0
     rookFileName db "bitmaps/rook.bin", 0
+    originalSetupFileName db "scen/original.bin", 0
+    savedGameFileName db "scen/saved.bin", 0
+    scenario1FileName db "scen/scen1.bin", 0
+    scenario2FileName db "scen/scen2.bin", 0
+    scenario3FileName db "scen/scen3.bin", 0
+    scenario4FileName db "scen/scen4.bin", 0
+    scenarioFileNames dd offset originalSetupFileName, offset savedGameFileName, offset scenario1FileName, offset scenario2FileName, offset scenario3FileName, offset scenario4FileName, 0
+
 
     turnColor db 36h
-    whiteColor db 42h
-    blackColor db 06h
+    whiteColor db 42h; 01h ;42h
+    blackColor db 06h ;06h
     whitePieceColor db 0Fh
-    blackPieceColor db 00h
+    blackPieceColor db 0h
     selectedColor db 36h
     prevSourceColor db 76h
     prevDestinationColor db 78h
@@ -2252,7 +2397,7 @@ DATASEG
     prevMoveDestinationX db 8
     prevMoveDestinationY db 8
 
-    currentTurn db 1
+    currentTurn db 0
     winner db 2        ; 2 = undecided, 0 = white, 1 = black
 
     emptryString db 0
@@ -2280,12 +2425,32 @@ DATASEG
     ; - height of the button
     ; - address of the string to be displayed on the button
     ; Note that the x, y, width and height will be set when drawing the buttons.
-    ppQueenButton dd 0, 0, 0, 0, offset queenString, 0; offset pawnPromoteQueen
-    ppBishopButton dd 0, 0, 0, 0, offset bishopString, 0; offset pawnPromoteBishop
-    ppKnightButton dd 0, 0, 0, 0, offset knightString, 0; offset pawnPromoteKnight
-    ppRookButton dd 0, 0, 0, 0, offset rookString, 0; offset pawnPromoteRook
+    ppQueenButton dd 0, 0, 0, 0, offset queenString, offset pawnPromoteQueen
+    ppBishopButton dd 0, 0, 0, 0, offset bishopString, offset pawnPromoteBishop
+    ppKnightButton dd 0, 0, 0, 0, offset knightString, offset pawnPromoteKnight
+    ppRookButton dd 0, 0, 0, 0, offset rookString, offset pawnPromoteRook
 
+    optionsMenuSaveString db "SAVE", 0
+    optionsMenuRestartString db "RESTART", 0
+    optionsMenuQuitString db "QUIT", 0
+    scenariosString db "SCENARIOS", 0
+    ;optionsMenuColorsString db "COLORS", 0
+    optionsMenuButtons dd offset optionsMenuSaveButton, offset optionsMenuRestartButton, offset optionsMenuQuitButton, 0;offset optionsMenuColorsButton, 0
+    optionsMenuSaveButton dd 0, 0, 0, 0, offset optionsMenuSaveString, offset saveGame
+    optionsMenuRestartButton dd 0, 0, 0, 0, offset optionsMenuRestartString, offset restartGame
+    optionsMenuQuitButton dd 0, 0, 0, 0, offset optionsMenuQuitString, offset terminateProcess
+    ;optionsMenuColorsButton dd 0, 0, 0, 0, offset optionsMenuColorsString, 0, 0
 
+    scenariosVisible db 0
+    scenario1String db "EN PASSANT", 0
+    scenario2String db "CASTLING", 0
+    scenario3String db "PAWN PROMOTION", 0
+    scenario4String db "LAST MOVE", 0
+    scenarioButtons dd offset scenario1Button, offset scenario2Button, offset scenario3Button, offset scenario4Button, 0
+    scenario1Button dd 0, 0, 0, 0, offset scenario1String, offset setScenario1
+    scenario2Button dd 0, 0, 0, 0, offset scenario2String, offset setScenario2
+    scenario3Button dd 0, 0, 0, 0, offset scenario3String, offset setScenario3
+    scenario4Button dd 0, 0, 0, 0, offset scenario4String, offset setScenario4
 
 
 UDATASEG
@@ -2303,6 +2468,6 @@ UDATASEG
 ; -------------------------------------------------------------------
 ; STACK
 ; -------------------------------------------------------------------
-STACK 100h
+STACK 200h
 
 END main
