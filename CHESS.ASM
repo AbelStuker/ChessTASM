@@ -2017,6 +2017,7 @@ proc mouseHandler
     ; We update the lastMouseX and lastMouseY variables. When the frame buffer is drawn again, these values will be used.
     ; The x-coordinate is stored in cx, and the y-coordinate is stored in dx.
     ; Since the lastMouseX and lastMouseY store dwords, we make sure the cx and dx registers are zero-extended to 32 bits using movzx.
+    shr cx, 1
     movzx ecx, cx
     movzx edx, dx
     mov [lastMouseX], ecx
