@@ -1585,8 +1585,7 @@ proc selectCell
     mov ebx, [@@y]
     mov [selectedCellX], al             ;   ... belongs to the current player, we select this piece.
     mov [selectedCellY], bl
-    ;mov [prevSelectedCellX], 8         ; The source of the previous piece movement is no longer relevant.
-    ;mov [prevSelectedCellY], 8         ;
+
     jmp SHORT @@return
 
 
@@ -1750,7 +1749,7 @@ proc movePiece
         mov eax, [@@x]
         mov [prevMoveDestinationX], al 
         mov eax, [@@y]
-        mov [prevMoveDestinationY], bl
+        mov [prevMoveDestinationY], al
         pop eax
 
         ; Clearing the current selection
