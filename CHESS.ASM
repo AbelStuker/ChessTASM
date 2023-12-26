@@ -1729,11 +1729,15 @@ proc selectCell
     arg @@x:dword , @@y:dword
     local @@destPiece:dword
     uses eax, ebx, edx
-
+    
     cmp [winner], 2         ; If the game has ended, we do not want to select any cells.
     jne @@return
 
     call gridCoordinateFromPixelCoordinate, [@@x], [@@y]      ; Returns the grid x-coordinate in eax and the grid y-coordinate in ebx
+    cmp eax, 8
+    jge @@return
+    cmp ebx, 8
+    jge @@return
     mov [@@x], eax
     mov [@@y], ebx
     ; If the destination cell does not contain a piece of the same player, we may want the currently selected piece (if any) to move to this cell.
