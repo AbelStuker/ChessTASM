@@ -1961,6 +1961,24 @@ proc getTime
     ret
 endp getTime
 
+proc addTime 
+    uses eax
+    mov eax, [whiteLastTime]
+    add eax, 5 * 60
+    mov [whiteLastTime], eax
+    mov eax, [whiteTimer]
+    add eax, 5 * 60
+    call secondsToTimeStamp, eax, offset whiteTimerText
+    mov eax, [blackLastTime]
+    add eax, 5 * 60
+    mov [blackLastTime], eax
+    mov eax, [blackTimer]
+    add eax, 5 * 60
+    call secondsToTimeStamp, eax, offset blackTimerText
+
+    ret
+endp addTime
+
 proc writeNumberToAsciiBuffer
     arg @@number:dword, @@size:dword, @@dataBuffer:dword
     uses eax, ecx, edx, ebx, edi
@@ -2374,13 +2392,14 @@ DATASEG
     optionsMenuSaveString db "SAVE", 0
     optionsMenuRestartString db "RESTART", 0
     optionsMenuQuitString db "QUIT", 0
+    optionsMenuAddTime db "+5 MIN", 0
     scenariosString db "SCENARIOS", 0
     ;optionsMenuColorsString db "COLORS", 0
-    optionsMenuButtons dd offset optionsMenuSaveButton, offset optionsMenuRestartButton, offset optionsMenuQuitButton, 0;offset optionsMenuColorsButton, 0
+    optionsMenuButtons dd offset optionsMenuSaveButton, offset optionsMenuRestartButton, offset optionsMenuQuitButton, offset optionsMenuAddTimeButton, 0;offset optionsMenuColorsButton, 0
     optionsMenuSaveButton dd 0, 0, 0, 0, offset optionsMenuSaveString, offset saveGame
     optionsMenuRestartButton dd 0, 0, 0, 0, offset optionsMenuRestartString, offset restartGame
     optionsMenuQuitButton dd 0, 0, 0, 0, offset optionsMenuQuitString, offset terminateProcess
-    ;optionsMenuColorsButton dd 0, 0, 0, 0, offset optionsMenuColorsString, 0, 0
+    optionsMenuAddTimeButton dd 0, 0, 0, 0, offset optionsMenuAddTime, offset addTime, 0
 
     scenariosVisible db 0
     scenario1String db "EN PASSANT", 0
