@@ -20,3 +20,5 @@ CHESS
 ## Not yet implemented
 - Checkmate detection (explicitly killing the King is necessary to win)
 - Colour palette picker
+
+![image](https://github.com/AbelStuker/ChessTASM/assets/62062732/7437ee0b-bafa-4f86-a328-8dca5f1bf8ea)
