@@ -1,18 +1,22 @@
-# Intel8086ChessASM
+# ChessTASM
+University project (2nd bachelor): Chess game in Assembly language (TASM)
 
-## Schaakstukken
-Ik stel voor dat we deze schaakstukken van op het internet gebruiken om om te zetten in bitmaps: ![schaakstukken](https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/Chess_Pieces_Sprite.svg/800px-Chess_Pieces_Sprite.svg.png)
+## Run the program
+In DosBox:
+```
+CHESS
+```
 
-We moeten wel nog bekijken of we die wel mogen gebruiken (met copyright enzo). Als dat niet het geval zou zijn moeten we er andere zoeken.
-
-
-
-Afbeeldingen van schaakstukken kunnen we op basis van grijswaarden omzetting naar een monochrome bitmap.
-1. Omzetten van .png bestand [naar nullen en enen](https://www.dcode.fr/binary-image#f1) (op basis van gekozen b/w threshold).
-2. [Verwijderen van whitespaces/newlines](https://www.browserling.com/tools/remove-all-whitespace) om een doorlopende string te bekomen.
-3. Het omzetten van deze string naar een .bin file via het stringtobin.c script.
-4. Importeren van de bekomen .bin file naar de /bitmaps folder.
-
-Elke 1 is een ingekleurde pixel en de 0 een transparante pixel. Hierdoor kunnen we a.d.h.v. dezelfde bitmap zowel de witte als de zwarte schaakstukken tekenen. De bitmap dimensies worden ingesteld op 32x32 bits, maar dat moeten we misschien nog aanpassen.
-
-Elke bitmap in het project moet bij het opstarten van het spel worden gebuffered, zodat we maar 1 keer het bestand van elk stuk moeten uitlezen. Vervolgens kunnen we dan om elk stuk te tekenen gewoon de bijhorende databuffer uitlezen. 
+## Features
+- FIDE allowed moves restriction
+  - Castling (not compliant with FIDE rules, also allowed after initial Rook move)
+  - En passant
+- Scenario loading
+- Game saving
+- Timers (default. 10 min)
+  - Can be increased with 5min periods
+- Pawn promotion (promotable to Queen, Bishop, Knight, Rook)
+  
+## Not yet implemented
+- Checkmate detection (explicitly killing the King is necessary to win)
+- Colour palette picker
