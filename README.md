@@ -1,6 +1,8 @@
 # ChessTASM
 University project (2nd bachelor): Chess game in Assembly language (TASM)
 
+[Report](/report/report.pdf) included.
+
 ## Run the program
 In DosBox, simply run the
 ``
