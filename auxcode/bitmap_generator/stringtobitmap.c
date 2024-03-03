@@ -5,13 +5,13 @@ int main() {
     char foldername[11];
     printf("Enter folder where all character font binaries should be stored: ");
     scanf("%s", foldername);
-    // Unsafe, we know, but don't care for now :)
+    // Unsafe, we know, but don't care :)
 
     while (1)
     {
         char input[1000]; // Maximum length of the input string
         char filename[11];
-        char relative_file_path[3+10+1+10+1] = "../";
+        char relative_file_path[3+10+1+10+1] = "../"; // I am NOT explaining why I do 3+10+1+10+1 xD
         // Again, we don't care about safety here
         printf("Enter a string of binary (0s and 1s): ");
         scanf("%s", input);
