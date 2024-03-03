@@ -2,22 +2,22 @@
 University project (2nd bachelor): Chess game in Assembly language (TASM)
 
 ## Run the program
-In DosBox:
-```
+In DosBox, simply run the
+``
 CHESS
-```
+`` command to start the game.
 
 ## Features
-- FIDE allowed moves restriction
+- FIDE allowed movement restriction
   - Castling (not compliant with FIDE rules, also allowed after initial Rook move)
   - En passant
 - Scenario loading
 - Game saving
-- Timers (default. 10 min)
+- Timers (default. 10 min) with turn indicator
   - Can be increased with 5min periods
 - Pawn promotion (promotable to Queen, Bishop, Knight, Rook)
   
-## Not yet implemented
+## Not yet implemented (and probably never will be)
 - Checkmate detection (explicitly killing the King is necessary to win)
 - Colour palette picker
 
